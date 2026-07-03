@@ -1,0 +1,884 @@
+# Evaluation fixture corpus.
+#
+# These records are HAND-AUTHORED FIXTURES, not ingested data. They are modelled
+# on the shape and stack of a real local repository set so that retrieval is
+# scored against something with realistic overlap and realistic near-misses,
+# and so that scoring is deterministic in CI. Real ingested memory lives in the
+# runtime database and never in this file.
+#
+# source_url uses a `fixture://` scheme precisely so a fixture can never be
+# mistaken for a real commit or pull request.
+
+name: local-portfolio-fixture
+version: "1.0"
+description: >-
+  Fourteen projects and fifty-two episodic records spanning mobile, ML and
+  backend work, with deliberate cross-project overlap in backend choice, state
+  management, model serving and data-loading patterns.
+
+projects:
+  - key: kairos
+    name: Kairos
+    git_remote: fixture://local/kairos
+    languages: [python]
+    frameworks: [langgraph, fastapi]
+    dependencies: [langgraph, fastapi, pydantic, sqlalchemy, redis, ccxt, pandas, numpy]
+
+  - key: placement-pilot
+    name: PlacementPilot
+    git_remote: fixture://local/placement-pilot
+    languages: [typescript]
+    frameworks: [nextjs, react]
+    dependencies: [next, react, supabase-js, tailwindcss, zod, tanstack-query]
+
+  - key: spendwise
+    name: SpendWise
+    git_remote: fixture://local/spendwise
+    languages: [dart]
+    frameworks: [flutter]
+    dependencies: [flutter, riverpod, supabase_flutter, freezed, go_router, fl_chart]
+
+  - key: tripmate-ai
+    name: TripMateAI
+    git_remote: fixture://local/tripmate-ai
+    languages: [dart, python]
+    frameworks: [flutter, fastapi]
+    dependencies: [flutter, riverpod, supabase_flutter, go_router, fastapi, httpx]
+
+  - key: sprout
+    name: Sprout
+    git_remote: fixture://local/sprout
+    languages: [dart]
+    frameworks: [flutter]
+    dependencies: [flutter, provider, firebase_core, cloud_firestore, go_router]
+
+  - key: voicebrief
+    name: VoiceBrief
+    git_remote: fixture://local/voicebrief
+    languages: [python]
+    frameworks: [fastapi]
+    dependencies: [fastapi, faster-whisper, pydantic, celery, redis, ffmpeg-python]
+
+  - key: blood-insights
+    name: Blood Insights
+    git_remote: fixture://local/blood-insights
+    languages: [python]
+    frameworks: [streamlit]
+    dependencies: [scikit-learn, xgboost, pandas, numpy, streamlit, shap, imbalanced-learn]
+
+  - key: pill-counting
+    name: Pill Counting
+    git_remote: fixture://local/pill-counting
+    languages: [python]
+    frameworks: [ultralytics]
+    dependencies: [ultralytics, opencv-python, torch, albumentations, numpy]
+
+  - key: pothole-detection
+    name: Pothole Detection
+    git_remote: fixture://local/pothole-detection
+    languages: [python]
+    frameworks: [ultralytics]
+    dependencies: [ultralytics, opencv-python, torch, roboflow, albumentations]
+
+  - key: handwritten-ocr
+    name: Handwritten OCR
+    git_remote: fixture://local/handwritten-ocr
+    languages: [python]
+    frameworks: [pytorch]
+    dependencies: [torch, torchvision, editdistance, pillow, numpy, albumentations]
+
+  - key: fake-news-detector
+    name: Fake News Detector
+    git_remote: fixture://local/fake-news-detector
+    languages: [python]
+    frameworks: [transformers]
+    dependencies: [transformers, torch, datasets, scikit-learn, pandas]
+
+  - key: gold-etf-forecast
+    name: Gold ETF Forecast
+    git_remote: fixture://local/gold-etf-forecast
+    languages: [python]
+    frameworks: []
+    dependencies: [statsmodels, lightgbm, pandas, numpy, matplotlib, scikit-learn]
+
+  - key: neuro-disorders-ml
+    name: Neurological Disorders ML
+    git_remote: fixture://local/neuro-disorders-ml
+    languages: [python]
+    frameworks: []
+    dependencies: [scikit-learn, pandas, numpy, shap, optuna, imbalanced-learn]
+
+  - key: amazon-ml-challenge
+    name: Amazon ML Challenge
+    git_remote: fixture://local/amazon-ml-challenge
+    languages: [python]
+    frameworks: [pytorch]
+    dependencies: [torch, timm, pandas, numpy, albumentations, transformers]
+
+records:
+  # ---- backend-as-a-service thread: the strongest cross-project signal -----
+  - id: spendwise-d1
+    project: spendwise
+    type: decision
+    what: Adopted Supabase for auth, Postgres and storage instead of Firebase.
+    why: >-
+      Row level security removed a whole class of client-side permission code,
+      and relational queries for category rollups were awkward in Firestore.
+    rejected_alternatives: [firebase, appwrite, custom-fastapi-backend]
+    outcome: Shipped; auth and RLS policies stable across two releases.
+    entities: [supabase, firebase, postgres, rls, auth, flutter]
+    source_type: commit
+    source_url: fixture://spendwise/commit/4c1b9ae
+    occurred_at: 2026-02-11
+    confidence: 0.91
+    is_inference: false
+
+  - id: sprout-d1
+    project: sprout
+    type: decision
+    what: Used Firebase Auth and Firestore for the first release.
+    why: Fastest path to a working login and a synced plant list for one user.
+    rejected_alternatives: [supabase, local-only-sqlite]
+    outcome: Worked, but query costs grew once the care-history view landed.
+    entities: [firebase, firestore, auth, flutter]
+    source_type: commit
+    source_url: fixture://sprout/commit/8de20f3
+    occurred_at: 2025-08-19
+    confidence: 0.84
+    is_inference: false
+
+  - id: sprout-r1
+    project: sprout
+    type: reversal
+    what: Migrated the care-history collection off Firestore onto Supabase Postgres.
+    why: >-
+      Per-document reads on a time-series view made cost scale with history
+      length; a single SQL aggregate replaced fourteen client reads.
+    rejected_alternatives: [firestore-aggregation-queries, client-side-caching]
+    outcome: Read volume dropped sharply; the rest of the app stayed on Firebase Auth.
+    entities: [firestore, supabase, postgres, migration, cost, flutter]
+    source_type: pull_request
+    source_url: fixture://sprout/pr/41
+    occurred_at: 2026-01-27
+    confidence: 0.88
+    is_inference: false
+
+  - id: tripmate-d1
+    project: tripmate-ai
+    type: decision
+    what: Started TripMateAI on Supabase rather than evaluating Firebase again.
+    why: The SpendWise RLS policies were reusable almost verbatim.
+    rejected_alternatives: [firebase, pocketbase]
+    outcome: Auth and storage working on day one of the project.
+    entities: [supabase, rls, auth, flutter, reuse]
+    source_type: commit
+    source_url: fixture://tripmate-ai/commit/1a77c02
+    occurred_at: 2026-04-03
+    confidence: 0.86
+    is_inference: false
+
+  - id: placement-pilot-d1
+    project: placement-pilot
+    type: decision
+    what: Chose Supabase over a hand-rolled Next.js API layer with Prisma.
+    why: >-
+      Auth, storage and Postgres in one service; the app had no server-side
+      logic that justified maintaining a separate API surface.
+    rejected_alternatives: [prisma-with-nextauth, planetscale, firebase]
+    outcome: Shipped; edge functions later added for the resume parser only.
+    entities: [supabase, nextjs, prisma, postgres, auth]
+    source_type: pull_request
+    source_url: fixture://placement-pilot/pr/12
+    occurred_at: 2026-03-08
+    confidence: 0.89
+    is_inference: false
+
+  # ---- Flutter state management thread -------------------------------------
+  - id: spendwise-d2
+    project: spendwise
+    type: decision
+    what: Standardised on Riverpod with code generation for all app state.
+    why: >-
+      Compile-time safety on provider wiring, and testability without a widget
+      tree, after Provider made dependency overrides painful in tests.
+    rejected_alternatives: [provider, bloc, getx]
+    outcome: Adopted; the same layout was copied into TripMateAI.
+    entities: [riverpod, provider, bloc, flutter, state-management, codegen]
+    source_type: commit
+    source_url: fixture://spendwise/commit/77af51d
+    occurred_at: 2025-11-22
+    confidence: 0.9
+    is_inference: false
+
+  - id: sprout-f1
+    project: sprout
+    type: failure
+    what: Provider rebuilt the whole plant grid on every watering-log write.
+    why: >-
+      A single ChangeNotifier held both the list and the selected item, so any
+      mutation invalidated every consumer.
+    rejected_alternatives: [selector-widgets, splitting-the-notifier]
+    outcome: Fixed by splitting the notifier; the deeper fix was moving to Riverpod later.
+    entities: [provider, flutter, rebuild, performance, changenotifier]
+    source_type: commit
+    source_url: fixture://sprout/commit/b3c0912
+    occurred_at: 2025-10-05
+    confidence: 0.82
+    is_inference: false
+
+  - id: tripmate-d2
+    project: tripmate-ai
+    type: decision
+    what: Copied the SpendWise Riverpod and go_router skeleton into TripMateAI.
+    why: Known-good routing and provider layout, already covered by tests.
+    rejected_alternatives: [starting-from-flutter-template]
+    outcome: Roughly two days of setup avoided.
+    entities: [riverpod, go_router, flutter, scaffolding, reuse]
+    source_type: commit
+    source_url: fixture://tripmate-ai/commit/5e9b3a8
+    occurred_at: 2026-04-05
+    confidence: 0.85
+    is_inference: true
+
+  - id: spendwise-f1
+    project: spendwise
+    type: failure
+    what: go_router deep links dropped query parameters on cold start on Android.
+    why: >-
+      The initial route was resolved before the auth provider finished
+      restoring the session, so the redirect discarded the original URI.
+    rejected_alternatives: [custom-route-parser]
+    outcome: Fixed by holding the pending URI in a provider until auth settles.
+    entities: [go_router, flutter, deep-link, android, auth, cold-start]
+    source_type: commit
+    source_url: fixture://spendwise/commit/d42f7b1
+    occurred_at: 2026-02-28
+    confidence: 0.87
+    is_inference: false
+
+  # ---- class imbalance thread ----------------------------------------------
+  - id: blood-insights-d1
+    project: blood-insights
+    type: decision
+    what: Used class weights rather than SMOTE for the minority anaemia class.
+    why: >-
+      SMOTE inflated cross-validation scores and collapsed on the held-out
+      clinic split; synthetic points fell in regions with no real samples.
+    rejected_alternatives: [smote, random-oversampling, undersampling]
+    outcome: Held-out recall improved; CV and test scores finally agreed.
+    entities: [smote, class-weights, imbalance, scikit-learn, xgboost, cross-validation]
+    source_type: commit
+    source_url: fixture://blood-insights/commit/2f81c60
+    occurred_at: 2025-07-14
+    confidence: 0.92
+    is_inference: false
+
+  - id: neuro-f1
+    project: neuro-disorders-ml
+    type: failure
+    what: SMOTE applied before the train/test split leaked synthetic neighbours.
+    why: >-
+      Oversampling ran on the full frame, so synthetic rows derived from test
+      samples ended up in training. Reported F1 was roughly twelve points high.
+    rejected_alternatives: []
+    outcome: Moved resampling inside the CV pipeline; scores dropped and became real.
+    entities: [smote, data-leakage, cross-validation, scikit-learn, pipeline, imbalance]
+    source_type: commit
+    source_url: fixture://neuro-disorders-ml/commit/9ab4417
+    occurred_at: 2025-09-02
+    confidence: 0.93
+    is_inference: false
+
+  - id: neuro-d1
+    project: neuro-disorders-ml
+    type: decision
+    what: Wrapped every preprocessing step in an sklearn Pipeline before tuning.
+    why: The leakage incident made it clear that manual preprocessing is not auditable.
+    rejected_alternatives: [manual-preprocessing, ad-hoc-transform-scripts]
+    outcome: Optuna tuning then ran end to end without leaking.
+    entities: [scikit-learn, pipeline, optuna, leakage, tuning]
+    source_type: commit
+    source_url: fixture://neuro-disorders-ml/commit/c05e2a9
+    occurred_at: 2025-09-06
+    confidence: 0.9
+    is_inference: false
+
+  - id: fake-news-f1
+    project: fake-news-detector
+    type: failure
+    what: Near-duplicate headlines across the split inflated accuracy to 0.99.
+    why: >-
+      The same story appeared from multiple outlets with minor rewording, and a
+      random split put copies on both sides.
+    rejected_alternatives: [random-split]
+    outcome: Grouped split by story cluster; accuracy fell to 0.87 and generalised.
+    entities: [data-leakage, duplicates, train-test-split, transformers, distilbert]
+    source_type: commit
+    source_url: fixture://fake-news-detector/commit/71d3e88
+    occurred_at: 2025-12-13
+    confidence: 0.91
+    is_inference: false
+
+  # ---- CUDA / training-loop failure thread ---------------------------------
+  - id: pill-counting-f1
+    project: pill-counting
+    type: failure
+    what: CUDA out of memory during YOLOv8 validation but not during training.
+    why: >-
+      Validation ran at a larger image size than training, and the default
+      batch size was carried over unchanged.
+    rejected_alternatives: [gradient-accumulation, smaller-model]
+    outcome: Pinned the validation imgsz and halved the val batch; memory stable.
+    entities: [cuda, oom, yolov8, ultralytics, validation, batch-size, imgsz]
+    source_type: commit
+    source_url: fixture://pill-counting/commit/0b6ad34
+    occurred_at: 2025-10-29
+    confidence: 0.89
+    is_inference: false
+
+  - id: amazon-ml-f1
+    project: amazon-ml-challenge
+    type: failure
+    what: Training stalled at ninety percent GPU idle with num_workers set to zero.
+    why: JPEG decode on the main process was the bottleneck, not the model.
+    rejected_alternatives: [smaller-images, mixed-precision-only]
+    outcome: num_workers=8 with persistent_workers cut epoch time by roughly four times.
+    entities: [dataloader, num-workers, pytorch, gpu-utilisation, throughput, jpeg]
+    source_type: commit
+    source_url: fixture://amazon-ml-challenge/commit/aa19f52
+    occurred_at: 2026-05-17
+    confidence: 0.9
+    is_inference: false
+
+  - id: handwritten-ocr-f1
+    project: handwritten-ocr
+    type: failure
+    what: CTC loss went to NaN after a few hundred steps.
+    why: >-
+      Input sequence length fell below target length for the widest crops, so
+      CTC had no valid alignment path.
+    rejected_alternatives: [lower-learning-rate, gradient-clipping-alone]
+    outcome: Filtered samples where width ratio made alignment impossible.
+    entities: [ctc, nan, pytorch, crnn, sequence-length, loss]
+    source_type: commit
+    source_url: fixture://handwritten-ocr/commit/6f2b7c1
+    occurred_at: 2025-11-08
+    confidence: 0.88
+    is_inference: false
+
+  - id: pothole-f1
+    project: pothole-detection
+    type: failure
+    what: mAP collapsed after adding heavy augmentation.
+    why: >-
+      Mosaic plus aggressive rotation produced boxes clipped to slivers, and
+      the label sanitiser kept them instead of dropping them.
+    rejected_alternatives: [reducing-learning-rate, longer-training]
+    outcome: Disabled mosaic for the last ten epochs and dropped degenerate boxes.
+    entities: [augmentation, mosaic, yolov8, map, bounding-box, albumentations]
+    source_type: commit
+    source_url: fixture://pothole-detection/commit/3ce8d19
+    occurred_at: 2026-01-09
+    confidence: 0.86
+    is_inference: false
+
+  - id: amazon-ml-d1
+    project: amazon-ml-challenge
+    type: decision
+    what: Fine-tuned a timm ConvNeXt-Tiny instead of training a CNN from scratch.
+    why: Forty thousand labelled images is far below what scratch training needs.
+    rejected_alternatives: [resnet50-from-scratch, efficientnet-b0-from-scratch]
+    outcome: Public leaderboard score improved by a wide margin on the first submission.
+    entities: [timm, convnext, transfer-learning, pytorch, fine-tuning]
+    source_type: commit
+    source_url: fixture://amazon-ml-challenge/commit/e77c410
+    occurred_at: 2026-05-12
+    confidence: 0.87
+    is_inference: false
+
+  - id: pill-counting-d1
+    project: pill-counting
+    type: decision
+    what: Counted by instance segmentation rather than density regression.
+    why: >-
+      Touching pills defeated contour splitting, and a count-only regressor
+      gave no way to show the operator what it had counted.
+    rejected_alternatives: [watershed-contours, density-map-regression]
+    outcome: Adopted; the overlay became the main debugging tool for the whole project.
+    entities: [segmentation, yolov8, watershed, density-map, counting, opencv]
+    source_type: pull_request
+    source_url: fixture://pill-counting/pr/7
+    occurred_at: 2025-10-02
+    confidence: 0.88
+    is_inference: false
+
+  - id: pothole-d1
+    project: pothole-detection
+    type: decision
+    what: Labelled in Roboflow and exported YOLO format rather than building a labeller.
+    why: A weekend of tooling work saved for a one-off dataset of two thousand images.
+    rejected_alternatives: [label-studio, custom-labeller]
+    outcome: Dataset ready in two evenings.
+    entities: [roboflow, labelling, dataset, yolov8, label-studio]
+    source_type: commit
+    source_url: fixture://pothole-detection/commit/bd5701a
+    occurred_at: 2025-12-01
+    confidence: 0.83
+    is_inference: false
+
+  # ---- serving and inference thread ----------------------------------------
+  - id: pill-counting-d2
+    project: pill-counting
+    type: decision
+    what: Exported the model to ONNX for CPU inference on the lab machine.
+    why: No GPU on the target machine, and torch pulled a 2 GB dependency chain.
+    rejected_alternatives: [torchscript, keeping-pytorch-runtime]
+    outcome: Inference at roughly 120 ms per frame on CPU; install size under 300 MB.
+    entities: [onnx, onnxruntime, cpu-inference, deployment, torchscript, latency]
+    source_type: commit
+    source_url: fixture://pill-counting/commit/f019c73
+    occurred_at: 2026-01-18
+    confidence: 0.89
+    is_inference: false
+
+  - id: voicebrief-d1
+    project: voicebrief
+    type: decision
+    what: Used faster-whisper with CTranslate2 instead of the reference Whisper package.
+    why: Roughly four times faster on CPU with int8 quantisation and the same WER.
+    rejected_alternatives: [openai-whisper, whisper-cpp, hosted-api]
+    outcome: A ten-minute recording transcribes in under a minute on CPU.
+    entities: [whisper, faster-whisper, ctranslate2, quantisation, int8, cpu-inference]
+    source_type: commit
+    source_url: fixture://voicebrief/commit/24ab8e7
+    occurred_at: 2025-09-25
+    confidence: 0.9
+    is_inference: false
+
+  - id: voicebrief-f1
+    project: voicebrief
+    type: failure
+    what: Long uploads timed out behind the reverse proxy at sixty seconds.
+    why: Transcription ran inline in the request handler instead of on a worker.
+    rejected_alternatives: [raising-the-proxy-timeout]
+    outcome: Moved to Celery with a job id and a polling endpoint.
+    entities: [celery, fastapi, timeout, background-job, redis, reverse-proxy]
+    source_type: commit
+    source_url: fixture://voicebrief/commit/8c1f402
+    occurred_at: 2025-10-16
+    confidence: 0.91
+    is_inference: false
+
+  - id: voicebrief-d2
+    project: voicebrief
+    type: decision
+    what: Chunked audio on silence boundaries before transcription.
+    why: Fixed-length chunks cut words in half and produced garbled joins.
+    rejected_alternatives: [fixed-30s-chunks, overlapping-windows]
+    outcome: Join artefacts disappeared; chunk count became content dependent.
+    entities: [chunking, silence-detection, whisper, ffmpeg, audio]
+    source_type: commit
+    source_url: fixture://voicebrief/commit/b7e33d5
+    occurred_at: 2025-11-03
+    confidence: 0.85
+    is_inference: false
+
+  # ---- agent / LLM plumbing thread -----------------------------------------
+  - id: kairos-d1
+    project: kairos
+    type: decision
+    what: Built the agent loop on LangGraph instead of a bare while loop.
+    why: >-
+      Needed checkpointing and the ability to resume a run after a broker
+      error without replaying the whole session.
+    rejected_alternatives: [custom-loop, crewai, autogen]
+    outcome: Resume after failure works; the graph is also the documentation.
+    entities: [langgraph, agent, checkpointing, state-machine, crewai, autogen]
+    source_type: pull_request
+    source_url: fixture://kairos/pr/23
+    occurred_at: 2026-03-21
+    confidence: 0.9
+    is_inference: false
+
+  - id: kairos-f1
+    project: kairos
+    type: failure
+    what: The agent re-entered a tool call loop and burned tokens for nine minutes.
+    why: No recursion limit and a tool that returned a retryable error forever.
+    rejected_alternatives: [prompt-only-guardrail]
+    outcome: Added a hard step cap and a per-tool failure budget.
+    entities: [langgraph, recursion, token-cost, guardrail, retry, agent]
+    source_type: commit
+    source_url: fixture://kairos/commit/1d9f6b2
+    occurred_at: 2026-04-14
+    confidence: 0.92
+    is_inference: false
+
+  - id: kairos-d2
+    project: kairos
+    type: decision
+    what: Stored agent state in Postgres rather than Redis.
+    why: >-
+      Runs needed to be queryable after the fact; Redis was kept only for the
+      rate limiter and the job queue.
+    rejected_alternatives: [redis-only, sqlite, in-memory]
+    outcome: Postmortem queries on past runs became possible.
+    entities: [postgres, redis, persistence, state, sqlalchemy, agent]
+    source_type: commit
+    source_url: fixture://kairos/commit/7e4c103
+    occurred_at: 2026-03-29
+    confidence: 0.87
+    is_inference: false
+
+  - id: kairos-e1
+    project: kairos
+    type: experiment
+    what: Tried a vector store over past trades for few-shot retrieval.
+    why: Hypothesis that similar historical setups would improve entry decisions.
+    rejected_alternatives: []
+    outcome: >-
+      No measurable improvement over a rules baseline; retrieval mostly returned
+      the same three trades. Removed after two weeks.
+    entities: [vector-store, rag, embeddings, few-shot, experiment]
+    source_type: pull_request
+    source_url: fixture://kairos/pr/31
+    occurred_at: 2026-05-02
+    confidence: 0.79
+    is_inference: false
+
+  - id: tripmate-f1
+    project: tripmate-ai
+    type: failure
+    what: Itinerary generation returned malformed JSON about one call in twelve.
+    why: The model was asked for JSON in the prompt with no schema enforcement.
+    rejected_alternatives: [regex-repair, retry-on-parse-failure]
+    outcome: Switched to a tool-call schema; parse failures went to zero.
+    entities: [json, structured-output, llm, schema, tool-calling, parsing]
+    source_type: commit
+    source_url: fixture://tripmate-ai/commit/9f5c241
+    occurred_at: 2026-05-20
+    confidence: 0.9
+    is_inference: false
+
+  - id: tripmate-d3
+    project: tripmate-ai
+    type: decision
+    what: Cached LLM itinerary responses keyed by a normalised request hash.
+    why: Identical trip parameters were regenerating on every screen revisit.
+    rejected_alternatives: [client-side-cache-only, no-cache]
+    outcome: Repeat-request cost dropped to near zero during testing.
+    entities: [caching, llm, cost, hashing, fastapi]
+    source_type: commit
+    source_url: fixture://tripmate-ai/commit/c3d8017
+    occurred_at: 2026-06-01
+    confidence: 0.84
+    is_inference: false
+
+  # ---- frontend thread ------------------------------------------------------
+  - id: placement-pilot-f1
+    project: placement-pilot
+    type: failure
+    what: Hydration mismatch on the dashboard after adding a relative timestamp.
+    why: The server rendered a different "x minutes ago" string than the client.
+    rejected_alternatives: [suppressHydrationWarning]
+    outcome: Rendered the absolute timestamp on the server and localised after mount.
+    entities: [nextjs, hydration, ssr, react, timestamp]
+    source_type: commit
+    source_url: fixture://placement-pilot/commit/5b90ea4
+    occurred_at: 2026-03-30
+    confidence: 0.88
+    is_inference: false
+
+  - id: placement-pilot-d2
+    project: placement-pilot
+    type: decision
+    what: Used TanStack Query for server state and kept React state local only.
+    why: Hand-rolled fetch effects had produced three separate stale-data bugs.
+    rejected_alternatives: [redux-toolkit, swr, plain-useeffect]
+    outcome: Stale-data class of bug disappeared.
+    entities: [tanstack-query, react, server-state, redux, swr, caching]
+    source_type: pull_request
+    source_url: fixture://placement-pilot/pr/19
+    occurred_at: 2026-04-11
+    confidence: 0.86
+    is_inference: false
+
+  - id: placement-pilot-d3
+    project: placement-pilot
+    type: decision
+    what: Validated every API boundary with Zod schemas shared between client and server.
+    why: Supabase returns loosely typed rows and the type errors surfaced at runtime.
+    rejected_alternatives: [manual-type-assertions, io-ts]
+    outcome: Runtime shape errors became compile-time or boundary errors.
+    entities: [zod, typescript, validation, supabase, schema]
+    source_type: commit
+    source_url: fixture://placement-pilot/commit/e2a71f6
+    occurred_at: 2026-04-22
+    confidence: 0.85
+    is_inference: false
+
+  # ---- time series and tabular thread --------------------------------------
+  - id: gold-etf-f1
+    project: gold-etf-forecast
+    type: failure
+    what: Backtest showed an implausible Sharpe ratio above four.
+    why: >-
+      Features were scaled using statistics computed over the full series, so
+      future information leaked into every training fold.
+    rejected_alternatives: []
+    outcome: Refit the scaler inside each expanding window; Sharpe fell below one.
+    entities: [data-leakage, scaling, backtest, time-series, walk-forward, sharpe]
+    source_type: commit
+    source_url: fixture://gold-etf-forecast/commit/14bc802
+    occurred_at: 2025-08-07
+    confidence: 0.93
+    is_inference: false
+
+  - id: gold-etf-d1
+    project: gold-etf-forecast
+    type: decision
+    what: Used walk-forward validation rather than k-fold for every model.
+    why: k-fold shuffles time and is meaningless on a price series.
+    rejected_alternatives: [kfold, single-holdout]
+    outcome: Reported numbers finally tracked out-of-sample behaviour.
+    entities: [walk-forward, cross-validation, time-series, kfold, validation]
+    source_type: commit
+    source_url: fixture://gold-etf-forecast/commit/93ffa15
+    occurred_at: 2025-08-11
+    confidence: 0.91
+    is_inference: false
+
+  - id: gold-etf-e1
+    project: gold-etf-forecast
+    type: experiment
+    what: Compared LightGBM on engineered features against an LSTM on raw windows.
+    why: Wanted to know whether sequence modelling earned its complexity here.
+    rejected_alternatives: []
+    outcome: >-
+      LightGBM matched the LSTM within noise and trained in seconds. Dropped
+      the LSTM.
+    entities: [lightgbm, lstm, time-series, feature-engineering, baseline]
+    source_type: commit
+    source_url: fixture://gold-etf-forecast/commit/ab2d449
+    occurred_at: 2025-08-24
+    confidence: 0.86
+    is_inference: false
+
+  - id: blood-insights-d2
+    project: blood-insights
+    type: decision
+    what: Reported SHAP values alongside every prediction in the Streamlit app.
+    why: A clinical reviewer will not act on a score with no stated reason.
+    rejected_alternatives: [feature-importance-only, no-explanation]
+    outcome: Review feedback shifted from "is this right" to "this feature is wrong".
+    entities: [shap, explainability, streamlit, clinical, trust]
+    source_type: commit
+    source_url: fixture://blood-insights/commit/df3a028
+    occurred_at: 2025-07-28
+    confidence: 0.87
+    is_inference: false
+
+  - id: blood-insights-f1
+    project: blood-insights
+    type: failure
+    what: Median imputation on lab values destroyed the signal in the rarest class.
+    why: >-
+      Missingness was informative; a missing ferritin reading correlated with
+      the condition being screened for.
+    rejected_alternatives: [mean-imputation, dropping-rows]
+    outcome: Added explicit missingness indicators; recall on the rare class recovered.
+    entities: [imputation, missing-data, feature-engineering, scikit-learn, imbalance]
+    source_type: commit
+    source_url: fixture://blood-insights/commit/60c1f7e
+    occurred_at: 2025-07-21
+    confidence: 0.89
+    is_inference: false
+
+  - id: fake-news-d1
+    project: fake-news-detector
+    type: decision
+    what: Fine-tuned DistilBERT rather than prompting a hosted LLM.
+    why: Fixed per-inference cost, no network dependency, and a reproducible score.
+    rejected_alternatives: [gpt-api-prompting, tfidf-logistic-regression]
+    outcome: 87 percent on the grouped split at negligible inference cost.
+    entities: [distilbert, transformers, fine-tuning, llm, cost, reproducibility]
+    source_type: commit
+    source_url: fixture://fake-news-detector/commit/427ea01
+    occurred_at: 2025-12-19
+    confidence: 0.88
+    is_inference: false
+
+  - id: fake-news-e1
+    project: fake-news-detector
+    type: experiment
+    what: Checked a TF-IDF and logistic regression baseline before any transformer.
+    why: Wanted a number the transformer had to beat to justify itself.
+    rejected_alternatives: []
+    outcome: Baseline hit 0.81; DistilBERT's 0.87 was then a defensible six points.
+    entities: [tfidf, logistic-regression, baseline, distilbert, benchmark]
+    source_type: commit
+    source_url: fixture://fake-news-detector/commit/1188ca3
+    occurred_at: 2025-12-09
+    confidence: 0.85
+    is_inference: false
+
+  - id: handwritten-ocr-d1
+    project: handwritten-ocr
+    type: decision
+    what: Trained a CRNN with CTC rather than fine-tuning TrOCR.
+    why: >-
+      TrOCR would not fit training batches on a 6 GB card, and the target
+      vocabulary was a constrained form field, not free text.
+    rejected_alternatives: [trocr, tesseract, paddleocr]
+    outcome: Character error rate under four percent on the form set.
+    entities: [crnn, ctc, trocr, tesseract, vram, ocr]
+    source_type: pull_request
+    source_url: fixture://handwritten-ocr/pr/9
+    occurred_at: 2025-10-21
+    confidence: 0.86
+    is_inference: false
+
+  - id: handwritten-ocr-r1
+    project: handwritten-ocr
+    type: reversal
+    what: Reverted the switch to a transformer decoder after two weeks.
+    why: Two point CER improvement cost six times the inference latency.
+    rejected_alternatives: [keeping-the-transformer, distillation]
+    outcome: Back on CRNN; the branch is kept for reference.
+    entities: [transformer, crnn, latency, tradeoff, ocr, revert]
+    source_type: pull_request
+    source_url: fixture://handwritten-ocr/pr/14
+    occurred_at: 2026-02-06
+    confidence: 0.84
+    is_inference: false
+
+  # ---- tooling, environment and research ------------------------------------
+  - id: amazon-ml-d2
+    project: amazon-ml-challenge
+    type: decision
+    what: Pinned every dependency with uv and committed the lockfile on day one.
+    why: A previous challenge broke overnight when a transitive package bumped.
+    rejected_alternatives: [requirements-txt-unpinned, conda]
+    outcome: Environment reproduced exactly on the submission machine.
+    entities: [uv, lockfile, reproducibility, dependencies, conda]
+    source_type: commit
+    source_url: fixture://amazon-ml-challenge/commit/3ad9f17
+    occurred_at: 2026-05-09
+    confidence: 0.88
+    is_inference: false
+
+  - id: amazon-ml-r1
+    project: amazon-ml-challenge
+    type: research
+    what: Read three papers on test-time augmentation before adding it.
+    why: Wanted to know whether the leaderboard gain was likely to be real.
+    rejected_alternatives: []
+    outcome: Added horizontal flip TTA only; multi-scale TTA was not worth the runtime.
+    entities: [test-time-augmentation, tta, research, inference, leaderboard]
+    source_type: note
+    source_url: fixture://amazon-ml-challenge/note/tta
+    occurred_at: 2026-05-24
+    confidence: 0.74
+    is_inference: true
+
+  - id: kairos-d3
+    project: kairos
+    type: decision
+    what: Ran Postgres in Docker Compose for development and documented the fallback.
+    why: A single command to a clean database beats a machine-specific install.
+    rejected_alternatives: [local-postgres-install, sqlite-for-dev]
+    outcome: Onboarding a new machine is one command.
+    entities: [docker, docker-compose, postgres, development, environment]
+    source_type: commit
+    source_url: fixture://kairos/commit/6a2e88b
+    occurred_at: 2026-03-16
+    confidence: 0.82
+    is_inference: false
+
+  - id: spendwise-d3
+    project: spendwise
+    type: decision
+    what: Generated immutable models with freezed instead of writing them by hand.
+    why: Hand-written copyWith and equality had already caused two state bugs.
+    rejected_alternatives: [handwritten-models, built_value]
+    outcome: Model bugs stopped; build time grew by about twenty seconds.
+    entities: [freezed, codegen, dart, immutability, built-value]
+    source_type: commit
+    source_url: fixture://spendwise/commit/aa4c19d
+    occurred_at: 2025-12-05
+    confidence: 0.83
+    is_inference: false
+
+  - id: voicebrief-e1
+    project: voicebrief
+    type: experiment
+    what: Measured whether speaker diarisation improved summary quality.
+    why: Summaries of two-person recordings attributed statements to the wrong speaker.
+    rejected_alternatives: []
+    outcome: >-
+      Diarisation fixed attribution but added ninety seconds per recording.
+      Enabled only for multi-speaker uploads.
+    entities: [diarisation, pyannote, whisper, summary, latency]
+    source_type: commit
+    source_url: fixture://voicebrief/commit/fe0b346
+    occurred_at: 2026-01-22
+    confidence: 0.8
+    is_inference: false
+
+  - id: sprout-d2
+    project: sprout
+    type: decision
+    what: Scheduled watering reminders with local notifications rather than push.
+    why: The schedule is deterministic and known on device; a server round trip added nothing.
+    rejected_alternatives: [fcm-push, server-cron]
+    outcome: Reminders work offline; no backend needed for the feature.
+    entities: [notifications, fcm, offline, flutter, scheduling]
+    source_type: commit
+    source_url: fixture://sprout/commit/7c04b21
+    occurred_at: 2025-09-12
+    confidence: 0.81
+    is_inference: false
+
+  - id: pill-counting-f2
+    project: pill-counting
+    type: failure
+    what: Counts drifted by up to eight percent under the lab's fluorescent flicker.
+    why: Rolling shutter banding changed pill edge contrast frame to frame.
+    rejected_alternatives: [histogram-equalisation, higher-exposure]
+    outcome: Averaged predictions over five frames and took the mode.
+    entities: [lighting, flicker, rolling-shutter, robustness, opencv, counting]
+    source_type: commit
+    source_url: fixture://pill-counting/commit/2e7b950
+    occurred_at: 2026-02-19
+    confidence: 0.84
+    is_inference: false
+
+  - id: neuro-e1
+    project: neuro-disorders-ml
+    type: experiment
+    what: Compared Optuna against a coarse grid search on the same budget.
+    why: Grid search was taking most of an evening per iteration.
+    rejected_alternatives: []
+    outcome: Optuna reached the grid's best score in about a fifth of the trials.
+    entities: [optuna, grid-search, hyperparameter-tuning, scikit-learn, budget]
+    source_type: commit
+    source_url: fixture://neuro-disorders-ml/commit/5d1ac37
+    occurred_at: 2025-10-11
+    confidence: 0.85
+    is_inference: false
+
+  - id: pothole-d2
+    project: pothole-detection
+    type: decision
+    what: Evaluated at IoU 0.3 rather than the default 0.5.
+    why: >-
+      The downstream consumer needs a location for a repair crew, not a tight
+      box; strict IoU was penalising boxes that were operationally fine.
+    rejected_alternatives: [iou-0.5, iou-0.75]
+    outcome: The metric started tracking whether the system was actually useful.
+    entities: [iou, map, evaluation, metric, yolov8, detection]
+    source_type: commit
+    source_url: fixture://pothole-detection/commit/c8e0472
+    occurred_at: 2026-01-30
+    confidence: 0.82
+    is_inference: false
