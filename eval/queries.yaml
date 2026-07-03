@@ -1,0 +1,451 @@
+# The evaluation set. Forty hand-written queries with hand-labelled answers.
+#
+# Labelling rules used throughout, so the judgements can be argued with:
+#
+#   * `relevant` is ordered best-first and lists only records that would change
+#     what the agent does. A record that is merely on-topic is not relevant.
+#   * `cross_project` marks the relevant records living in a different project
+#     than `project`. These are the cases per-repo tooling structurally cannot
+#     serve, and they are the reason this system exists.
+#   * `forbidden` lists records that a naive keyword or embedding match would
+#     surface and that would be actively misleading here. Near-misses are the
+#     whole point; a set without them cannot measure false injection.
+#   * `expect: nothing` means the correct bundle is empty. Ten of the forty are
+#     these. Without them a system that always injects scores perfectly.
+
+name: projectmind-eval
+version: "1.0"
+description: >-
+  Forty queries across implement, debug, refactor, architect, explore and
+  trivial task types, issued from fourteen fixture projects. Ten expect no
+  injection at all; fifteen have a cross-project correct answer.
+
+queries:
+  # ------------------------------------------------------------------ trivial
+  - id: q001
+    prompt: Rename the variable `res` to `response` in this file.
+    project: kairos
+    task_type: trivial
+    expect: nothing
+    tags: [trivial, rename]
+    note: >-
+      Pure mechanical edit. No preference and no history changes the outcome.
+      If anything is injected here the gate is broken.
+
+  - id: q002
+    prompt: Format this file.
+    project: placement-pilot
+    task_type: trivial
+    expect: nothing
+    tags: [trivial, format]
+    note: Formatting is tool-decided. Memory cannot improve it.
+
+  - id: q003
+    prompt: Add a trailing newline to the end of README.md.
+    project: sprout
+    task_type: trivial
+    expect: nothing
+    tags: [trivial]
+    note: One-liner with no decision content.
+
+  - id: q004
+    prompt: What does this regex do?
+    project: voicebrief
+    task_type: trivial
+    expect: nothing
+    tags: [trivial, explain]
+    note: >-
+      Explanation of code already on screen. Personal preferences are
+      irrelevant to reading a regex, and injecting them wastes budget.
+
+  - id: q005
+    prompt: Fix the typo in this comment.
+    project: blood-insights
+    task_type: trivial
+    expect: nothing
+    tags: [trivial]
+    note: No injection.
+
+  - id: q006
+    prompt: Sort these imports.
+    project: amazon-ml-challenge
+    task_type: trivial
+    expect: nothing
+    tags: [trivial]
+    note: Tooling decides import order, not memory.
+
+  - id: q007
+    prompt: Convert this function to use an f-string.
+    project: gold-etf-forecast
+    task_type: trivial
+    expect: nothing
+    tags: [trivial, refactor-mechanical]
+    note: >-
+      Mechanically scoped refactor. Deliberately tagged refactor-mechanical
+      because a task-type-only gate would wrongly treat this as a refactor and
+      inject. This query exists to catch that.
+
+  - id: q008
+    prompt: Add a docstring to this method.
+    project: pill-counting
+    task_type: trivial
+    expect: nothing
+    tags: [trivial]
+    note: No injection.
+
+  - id: q009
+    prompt: Bump the version in pyproject.toml to 0.3.1.
+    project: handwritten-ocr
+    task_type: trivial
+    expect: nothing
+    tags: [trivial]
+    note: >-
+      Mentions a manifest file, which the fingerprinter cares about. It should
+      still inject nothing. Checks that touching a manifest is not itself a
+      trigger.
+
+  - id: q010
+    prompt: Delete this unused import.
+    project: tripmate-ai
+    task_type: trivial
+    expect: nothing
+    tags: [trivial]
+    note: No injection.
+
+  # ------------------------------------------------------- profile-only cases
+  - id: q011
+    prompt: I want to start a small side project this weekend. Any thoughts on the stack?
+    project: sprout
+    task_type: explore
+    expect: profile_only
+    tags: [profile, greenfield]
+    note: >-
+      Greenfield with no named entity and no project to match against. Profile
+      is exactly the right answer; episodic records about specific projects
+      would be noise.
+
+  - id: q012
+    prompt: Set up the linting and formatting config for this repo.
+    project: kairos
+    task_type: implement
+    expect: profile_only
+    tags: [profile, tooling]
+    note: >-
+      Tooling conventions are a work-style preference. No past decision record
+      changes how this repo should be linted.
+
+  - id: q013
+    prompt: Write the project README.
+    project: pothole-detection
+    task_type: implement
+    expect: profile_only
+    tags: [profile, docs]
+    note: Documentation style is a profile fact, not an episodic one.
+
+  - id: q014
+    prompt: How should I structure the folders for this new service?
+    project: voicebrief
+    task_type: architect
+    expect: profile_only
+    tags: [profile, structure]
+    note: >-
+      Architect-type prompt, but layout preference is profile. No fixture
+      record is about directory structure, so serving one would be padding.
+
+  - id: q015
+    prompt: Should I write tests for this before or after the feature?
+    project: placement-pilot
+    task_type: explore
+    expect: profile_only
+    tags: [profile, work-style]
+    note: Pure work-style question.
+
+  - id: q016
+    prompt: Pick a license for this repo.
+    project: spendwise
+    task_type: implement
+    expect: profile_only
+    tags: [profile]
+    note: A settled personal default, with nothing episodic to add.
+
+  - id: q017
+    prompt: What should I name this module?
+    project: neuro-disorders-ml
+    task_type: implement
+    expect: profile_only
+    tags: [profile, naming]
+    note: Naming convention is a work-style preference.
+
+  - id: q018
+    prompt: Set up CI for this project.
+    project: fake-news-detector
+    task_type: implement
+    expect: profile_only
+    tags: [profile, ci]
+    note: >-
+      CI shape is a preference. No fixture record covers CI, and the near
+      neighbour about dependency pinning is genuinely about reproducibility of
+      the environment, not about CI, so it is not relevant here.
+    forbidden: [amazon-ml-d2]
+
+  # --------------------------------------------- episodic: same-project debug
+  - id: q019
+    prompt: Training is fine but validation crashes with CUDA out of memory.
+    project: pill-counting
+    task_type: debug
+    expect: profile_and_episodic
+    relevant: [pill-counting-f1]
+    forbidden: [pill-counting-d1, pill-counting-d2, amazon-ml-f1]
+    tags: [debug, same-project, cuda]
+    note: >-
+      Exact past failure in this very repo. The two forbidden pill-counting
+      records are decisions about approach and export format that share
+      vocabulary but do not help. amazon-ml-f1 is also a throughput problem but
+      a dataloader one, not a memory one.
+
+  - id: q020
+    prompt: Loss becomes NaN a few hundred steps into training the recogniser.
+    project: handwritten-ocr
+    task_type: debug
+    expect: profile_and_episodic
+    relevant: [handwritten-ocr-f1]
+    forbidden: [handwritten-ocr-d1, handwritten-ocr-r1]
+    tags: [debug, same-project, ctc]
+    note: >-
+      The CTC alignment failure is the answer. The architecture decision and
+      the transformer reversal are the same project and the same subsystem, and
+      are still wrong to serve for a NaN.
+
+  - id: q021
+    prompt: The dashboard throws a hydration error after my last change.
+    project: placement-pilot
+    task_type: debug
+    expect: profile_and_episodic
+    relevant: [placement-pilot-f1]
+    tags: [debug, same-project, nextjs]
+    note: Single exact match in the same repo.
+
+  - id: q022
+    prompt: Uploads longer than a minute fail with a gateway timeout.
+    project: voicebrief
+    task_type: debug
+    expect: profile_and_episodic
+    relevant: [voicebrief-f1]
+    forbidden: [voicebrief-d2, voicebrief-e1]
+    tags: [debug, same-project, timeout]
+    note: >-
+      The chunking decision and the diarisation experiment are both about long
+      recordings and both wrong here; the bug is request lifetime.
+
+  # ------------------------------------------- episodic: cross-project debug
+  - id: q023
+    prompt: My GPU sits at ten percent utilisation while training this detector.
+    project: pothole-detection
+    task_type: debug
+    expect: profile_and_episodic
+    relevant: [amazon-ml-f1, pill-counting-f1]
+    cross_project: [amazon-ml-f1, pill-counting-f1]
+    forbidden: [pothole-f1]
+    tags: [debug, cross-project, throughput]
+    note: >-
+      Nothing in this repo covers input-pipeline starvation, but a different
+      repo does, and it is the answer. The same-project augmentation failure is
+      the obvious keyword match and is wrong.
+
+  - id: q024
+    prompt: My cross-validation score is great but the held-out score is terrible.
+    project: blood-insights
+    task_type: debug
+    expect: profile_and_episodic
+    relevant: [neuro-f1, gold-etf-f1, fake-news-f1, blood-insights-d1]
+    cross_project: [neuro-f1, gold-etf-f1, fake-news-f1]
+    tags: [debug, cross-project, leakage]
+    note: >-
+      Three separate leakage failures in three different repos, each a distinct
+      mechanism: resampling before split, scaler fit on the full series, and
+      duplicate rows across the split. This is the flagship cross-project case.
+
+  - id: q025
+    prompt: Detection boxes look right by eye but mAP is low.
+    project: pothole-detection
+    task_type: debug
+    expect: profile_and_episodic
+    relevant: [pothole-d2, pothole-f1]
+    tags: [debug, same-project, metric]
+    note: >-
+      The IoU threshold decision explains the discrepancy directly; the
+      augmentation failure is a secondary but real cause of degenerate boxes.
+
+  - id: q026
+    prompt: Counts from the camera drift between runs even with the same tray.
+    project: pill-counting
+    task_type: debug
+    expect: profile_and_episodic
+    relevant: [pill-counting-f2]
+    forbidden: [pill-counting-f1]
+    tags: [debug, same-project, robustness]
+    note: Lighting instability, not memory. The OOM failure is the near-miss.
+
+  # ------------------------------ episodic: cross-project architecture choices
+  - id: q027
+    prompt: Starting a new Flutter app. Firebase or Supabase for the backend?
+    project: sprout
+    task_type: architect
+    expect: profile_and_episodic
+    relevant: [spendwise-d1, sprout-r1, tripmate-d1, placement-pilot-d1]
+    cross_project: [spendwise-d1, tripmate-d1, placement-pilot-d1]
+    tags: [architect, cross-project, baas]
+    note: >-
+      The single most valuable retrieval in the set. Asked from the one repo
+      that still runs Firebase, and the answer is a documented migration away
+      from it plus three later projects that chose otherwise.
+
+  - id: q028
+    prompt: Which state management should I use for this new Flutter screen?
+    project: sprout
+    task_type: architect
+    expect: profile_and_episodic
+    relevant: [spendwise-d2, sprout-f1, tripmate-d2]
+    cross_project: [spendwise-d2, tripmate-d2]
+    tags: [architect, cross-project, flutter]
+    note: >-
+      A settled preference with a concrete same-repo failure behind it and a
+      cross-repo precedent for the replacement.
+
+  - id: q029
+    prompt: I need to run this model on a machine with no GPU. What are my options?
+    project: pothole-detection
+    task_type: architect
+    expect: profile_and_episodic
+    relevant: [pill-counting-d2, voicebrief-d1]
+    cross_project: [pill-counting-d2, voicebrief-d1]
+    tags: [architect, cross-project, inference]
+    note: >-
+      Two different repos solved CPU inference two different ways, ONNX export
+      and int8 quantisation. Neither lives in this repo.
+
+  - id: q030
+    prompt: Designing the agent loop for this service. Should I use a framework?
+    project: voicebrief
+    task_type: architect
+    expect: profile_and_episodic
+    relevant: [kairos-d1, kairos-f1]
+    cross_project: [kairos-d1, kairos-f1]
+    tags: [architect, cross-project, agents]
+    note: >-
+      The framework decision and the runaway-loop failure that followed it
+      belong together; serving the decision without the guardrail failure would
+      be serving half the lesson.
+
+  - id: q031
+    prompt: Where should I keep the run state for this pipeline, Redis or Postgres?
+    project: voicebrief
+    task_type: architect
+    expect: profile_and_episodic
+    relevant: [kairos-d2]
+    cross_project: [kairos-d2]
+    tags: [architect, cross-project, persistence]
+    note: Direct precedent in another repo, with the reasoning attached.
+
+  - id: q032
+    prompt: How should I validate the API responses coming back from Supabase?
+    project: tripmate-ai
+    task_type: implement
+    expect: profile_and_episodic
+    relevant: [placement-pilot-d3]
+    cross_project: [placement-pilot-d3]
+    tags: [implement, cross-project, validation]
+    note: >-
+      Same backend, different language. The lesson transfers even though Zod
+      itself does not; this tests that the fingerprint match on `supabase` is
+      doing work rather than the language match.
+
+  # ---------------------------------------- episodic: implement and experiment
+  - id: q033
+    prompt: The model keeps returning JSON I cannot parse. How should I handle it?
+    project: kairos
+    task_type: implement
+    expect: profile_and_episodic
+    relevant: [tripmate-f1]
+    cross_project: [tripmate-f1]
+    tags: [implement, cross-project, structured-output]
+    note: Solved once already elsewhere, with a named fix.
+
+  - id: q034
+    prompt: Add caching so repeated identical requests do not hit the model again.
+    project: voicebrief
+    task_type: implement
+    expect: profile_and_episodic
+    relevant: [tripmate-d3]
+    cross_project: [tripmate-d3]
+    tags: [implement, cross-project, caching]
+    note: Same pattern, different repo.
+
+  - id: q035
+    prompt: Before I reach for a transformer here, is a simple baseline worth it?
+    project: neuro-disorders-ml
+    task_type: explore
+    expect: profile_and_episodic
+    relevant: [fake-news-e1, gold-etf-e1]
+    cross_project: [fake-news-e1, gold-etf-e1]
+    tags: [explore, cross-project, baseline]
+    note: >-
+      Two experiments in two repos both concluded the simple baseline was
+      competitive. This is the kind of answer that only cross-project memory
+      can give.
+
+  - id: q036
+    prompt: How should I deal with the missing lab values in this dataset?
+    project: blood-insights
+    task_type: implement
+    expect: profile_and_episodic
+    relevant: [blood-insights-f1]
+    forbidden: [blood-insights-d1, neuro-f1]
+    tags: [implement, same-project, missing-data]
+    note: >-
+      Imputation, not imbalance. The two forbidden records are both about class
+      balance in similar datasets and are the strongest distractors in the set.
+
+  - id: q037
+    prompt: What augmentation should I use for this detection dataset?
+    project: pill-counting
+    task_type: implement
+    expect: profile_and_episodic
+    relevant: [pothole-f1]
+    cross_project: [pothole-f1]
+    tags: [implement, cross-project, augmentation]
+    note: The mosaic failure in the sibling detection repo is the warning worth having.
+
+  - id: q038
+    prompt: I need to label about two thousand images for this. What is the fastest route?
+    project: pill-counting
+    task_type: explore
+    expect: profile_and_episodic
+    relevant: [pothole-d1]
+    cross_project: [pothole-d1]
+    tags: [explore, cross-project, labelling]
+    note: Same problem, already solved and timed in a neighbouring repo.
+
+  - id: q039
+    prompt: Refactor this training script so the preprocessing is reproducible.
+    project: blood-insights
+    task_type: refactor
+    expect: profile_and_episodic
+    relevant: [neuro-d1, neuro-f1, amazon-ml-d2]
+    cross_project: [neuro-d1, neuro-f1, amazon-ml-d2]
+    tags: [refactor, cross-project, reproducibility]
+    note: >-
+      A genuine refactor, unlike q007. The pipeline decision, the leakage that
+      motivated it and the dependency pinning habit are all on point.
+
+  - id: q040
+    prompt: Set up Postgres for local development on this project.
+    project: placement-pilot
+    task_type: implement
+    expect: profile_and_episodic
+    relevant: [kairos-d3]
+    cross_project: [kairos-d3]
+    tags: [implement, cross-project, environment]
+    note: >-
+      A small, unglamorous cross-project hit. Included because most real
+      retrievals look like this one and not like q027.
