@@ -9,7 +9,7 @@ implementation detail behind it.
 
 from __future__ import annotations
 
-from enum import Enum
+from enum import StrEnum
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -17,7 +17,7 @@ import yaml
 from pydantic import BaseModel, Field, model_validator
 
 
-class TaskType(str, Enum):
+class TaskType(StrEnum):
     """What the prompt is asking for.
 
     ``TRIVIAL`` is not a task type in the usual sense; it is the class of
@@ -32,7 +32,7 @@ class TaskType(str, Enum):
     TRIVIAL = "trivial"
 
 
-class Expectation(str, Enum):
+class Expectation(StrEnum):
     """What the bundle for a query should contain."""
 
     NOTHING = "nothing"
