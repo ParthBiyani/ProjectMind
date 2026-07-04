@@ -5,8 +5,8 @@ previous one is measured. Status is updated as each exit criterion is met.
 
 | Phase | Deliverable | Exit criterion | Status |
 |---|---|---|---|
-| 0 | Eval harness | 40 queries committed, scorer runs, baseline recorded | not started |
-| 1 | Profile memory + always-on injection | running in the daily workflow, profile slice under 800 tokens | not started |
+| 0 | Eval harness | 40 queries committed, scorer runs, baseline recorded | **complete** |
+| 1 | Profile memory + always-on injection | running in the daily workflow, profile slice under 800 tokens | in progress |
 | 2 | Project fingerprinting + the gate | gate precision ≥ 0.80 on the no-injection cases | not started |
 | 3 | Cross-project episodic ingestion | `search_memory` live, precision@5 scored | not started |
 | 4 | Retrieval quality | precision ≥ 0.70, cross-project hit rate ≥ 30%, false injection ≤ 10% | not started |
@@ -28,3 +28,12 @@ be measured in isolation rather than confounded with retrieval quality.
 Phase 6 is last because browser history and chat logs are the noisiest sources
 with the highest privacy cost. They feed the profile layer, never the episodic
 one, and the phase is cut if it does not move the eval.
+
+## Recorded results
+
+| Phase | Date | gate_precision | precision@5 | cross_project | false_injection |
+|---|---|---|---|---|---|
+| 0 (null floor) | 2026-07-04 | 0.250 | 0.000 | 0.000 | 0.000 |
+| 0 (oracle ceiling) | 2026-07-04 | 1.000 | 1.000 | 0.375 | 0.000 |
+
+Methodology and the meaning of each metric: [evaluation.md](evaluation.md).
