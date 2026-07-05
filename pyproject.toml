@@ -43,6 +43,9 @@ Issues = "https://github.com/ParthBiyani/ProjectMind/issues"
 [tool.hatch.build.targets.wheel]
 packages = ["src/projectmind"]
 
+[tool.hatch.build.targets.wheel.force-include]
+"src/projectmind/py.typed" = "projectmind/py.typed"
+
 [tool.ruff]
 line-length = 100
 target-version = "py311"
