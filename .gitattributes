@@ -1,0 +1,9 @@
+# Normalise everything to LF in the repository; check out native on Windows.
+* text=auto eol=lf
+
+# Binary and generated assets are left alone.
+*.png binary
+*.jpg binary
+*.ico binary
+*.onnx binary
+*.db binary
