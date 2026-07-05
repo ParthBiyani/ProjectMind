@@ -19,9 +19,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
       - uses: astral-sh/setup-uv@v3
         with:
           enable-cache: true
+          # No uv.lock in this project; key the cache on the manifest instead.
+          cache-dependency-glob: pyproject.toml
       - name: Install
         run: uv pip install --system -e ".[dev]"
       - name: Ruff
@@ -40,12 +45,14 @@ jobs:
         python: ["3.11", "3.12"]
     steps:
       - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v3
-        with:
-          enable-cache: true
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python }}
+      - uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+          # No uv.lock in this project; key the cache on the manifest instead.
+          cache-dependency-glob: pyproject.toml
       - name: Install
         run: uv pip install --system -e ".[dev]"
       - name: Pytest
