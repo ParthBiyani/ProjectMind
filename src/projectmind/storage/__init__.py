@@ -31,15 +31,20 @@ def open_store(settings: Settings | None = None, *, migrate: bool = True) -> Sto
     """Open the configured backend.
 
     A `postgresql://` URL selects Postgres; anything else, including no
-    configuration at all, gets SQLite under `PROJECTMIND_HOME`.
+    configuration at all, gets SQLite under `PROJECTMIND_HOME`. The Postgres
+    driver is imported lazily, so the common path costs nothing and a missing
+    `psycopg` is only an error for people who asked for Postgres.
     """
     settings = settings or get_settings()
+    store: Store
     if settings.uses_postgres:
-        raise NotImplementedError(
-            "the postgres backend is not wired up yet; unset PROJECTMIND_DB_URL to use sqlite"
-        )
-    settings.ensure_home()
-    store: Store = SqliteStore(settings.sqlite_path)
+        from projectmind.storage.postgres_store import PostgresStore
+
+        assert settings.db_url is not None
+        store = PostgresStore(settings.db_url)
+    else:
+        settings.ensure_home()
+        store = SqliteStore(settings.sqlite_path)
     if migrate:
         store.migrate()
     return store
