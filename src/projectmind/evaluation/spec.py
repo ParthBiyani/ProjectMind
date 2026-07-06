@@ -16,20 +16,7 @@ from typing import Any, Protocol
 import yaml
 from pydantic import BaseModel, Field, model_validator
 
-
-class TaskType(StrEnum):
-    """What the prompt is asking for.
-
-    ``TRIVIAL`` is not a task type in the usual sense; it is the class of
-    prompts that should short-circuit retrieval entirely.
-    """
-
-    IMPLEMENT = "implement"
-    DEBUG = "debug"
-    REFACTOR = "refactor"
-    ARCHITECT = "architect"
-    EXPLORE = "explore"
-    TRIVIAL = "trivial"
+from projectmind.models import TaskType as TaskType
 
 
 class Expectation(StrEnum):

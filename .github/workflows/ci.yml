@@ -57,3 +57,37 @@ jobs:
         run: uv pip install --system -e ".[dev]"
       - name: Pytest
         run: pytest --cov=projectmind --cov-report=term-missing
+
+  postgres:
+    name: storage parity on postgres
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: projectmind
+          POSTGRES_PASSWORD: projectmind
+          POSTGRES_DB: projectmind
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U projectmind -d projectmind"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+    env:
+      PROJECTMIND_TEST_DB_URL: postgresql://projectmind:projectmind@localhost:5432/projectmind
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+          # No uv.lock in this project; key the cache on the manifest instead.
+          cache-dependency-glob: pyproject.toml
+      - name: Install
+        run: uv pip install --system -e ".[dev]"
+      - name: Parity suite
+        run: pytest -m postgres -q
