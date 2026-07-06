@@ -31,6 +31,9 @@ dependencies = [
 postgres = [
   "psycopg[binary]>=3.1",
 ]
+embeddings = [
+  "fastembed>=0.3",
+]
 dev = [
   "projectmind[postgres]",
   "mypy>=1.10",
@@ -61,6 +64,10 @@ ignore = ["B008"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["projectmind"]
+
+[[tool.mypy.overrides]]
+module = ["fastembed.*"]
+ignore_missing_imports = true
 
 [tool.mypy]
 python_version = "3.11"

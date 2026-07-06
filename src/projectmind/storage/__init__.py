@@ -12,10 +12,19 @@ from projectmind.storage.base import (
     UsageStats,
     aggregate_usage,
 )
+from projectmind.storage.embeddings import (
+    EmbeddingProvider,
+    HashingEmbedder,
+    build_embedder,
+    embed_one,
+    get_embedder,
+)
 from projectmind.storage.sqlite_store import SqliteStore
 
 __all__ = [
     "BundleLogEntry",
+    "EmbeddingProvider",
+    "HashingEmbedder",
     "RecordFilter",
     "ScoredRecord",
     "SqliteStore",
@@ -23,6 +32,9 @@ __all__ = [
     "Store",
     "UsageStats",
     "aggregate_usage",
+    "build_embedder",
+    "embed_one",
+    "get_embedder",
     "open_store",
 ]
 
