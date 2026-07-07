@@ -22,6 +22,7 @@ from projectmind.profile.repository import (
     ProfileStats,
     ScoredStatement,
 )
+from projectmind.profile.seed import SeedFile, SeedResult, SeedStatement, seed_profile
 
 __all__ = [
     "ContradictionVerdict",
@@ -31,6 +32,9 @@ __all__ = [
     "ProfileSlice",
     "ProfileStats",
     "ScoredStatement",
+    "SeedFile",
+    "SeedResult",
+    "SeedStatement",
     "TransitionError",
     "activate",
     "apply_decay",
@@ -41,5 +45,6 @@ __all__ = [
     "note_contradiction",
     "reject_contradiction",
     "retire",
+    "seed_profile",
     "supersede",
 ]

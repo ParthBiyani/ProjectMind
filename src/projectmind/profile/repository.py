@@ -62,6 +62,7 @@ class ProfileSlice:
     statements: tuple[ScoredStatement, ...] = ()
     tokens: int = 0
     considered: int = 0
+    dropped_for_cap: int = 0
     dropped_for_budget: int = 0
     dropped_for_relevance: int = 0
 
@@ -308,10 +309,11 @@ class ProfileRepository:
 
         chosen: list[ScoredStatement] = []
         used = 0
+        dropped_for_cap = 0
         dropped_for_budget = 0
         for candidate in scored:
             if len(chosen) >= cap:
-                dropped_for_budget += 1
+                dropped_for_cap += 1
                 continue
             cost = estimate_tokens(_render_for_budget(candidate.statement))
             if used + cost > budget:
@@ -324,6 +326,7 @@ class ProfileRepository:
             statements=tuple(chosen),
             tokens=used,
             considered=len(candidates),
+            dropped_for_cap=dropped_for_cap,
             dropped_for_budget=dropped_for_budget,
             dropped_for_relevance=dropped_for_relevance,
         )

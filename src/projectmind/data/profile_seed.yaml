@@ -1,0 +1,270 @@
+# Starter profile.
+#
+# READ THIS BEFORE YOU TRUST ANY OF IT.
+#
+# These fifty statements are a *starting point*, not observations about you.
+# They are loaded as `proposed`, never as `active`, because a profile statement
+# is injected into every task and a wrong one poisons all of them. Nothing here
+# is served until a human approves it:
+#
+#     projectmind seed                  # load as proposed
+#     projectmind profile review        # approve, edit or drop, one at a time
+#     projectmind seed --activate-all   # only if you have actually read them
+#
+# The point of hand-writing this layer before the reflection loop exists is to
+# learn what a good statement looks like. A good one is specific enough to be
+# wrong: "prefers Supabase for backend-as-a-service" can be contradicted by
+# evidence, "likes clean code" cannot and is therefore worthless.
+#
+# `note` is documentation for the human reviewing the list. It is not stored.
+
+version: "1.0"
+description: >-
+  Fifty starter preference statements across tool choice, work style,
+  abandonments and constraints, loaded as proposals for human approval.
+
+statements:
+  # ------------------------------------------------------- tool_preference --
+  - statement: Reaches for Flutter for anything with a client-side UI, before considering React Native or native.
+    category: tool_preference
+    confidence: 0.92
+    entities: [flutter, dart, react-native, swiftui, kotlin]
+    note: The single highest-leverage statement here; it changes the shape of any new client project.
+
+  - statement: Uses Supabase for backend-as-a-service, getting auth, Postgres and storage from one service.
+    category: tool_preference
+    confidence: 0.91
+    entities: [supabase, firebase, postgres, auth, appwrite]
+    note: Specific and contradictable. If three new projects pick something else, this should be superseded.
+
+  - statement: Uses Riverpod with code generation for Flutter state, not Provider or Bloc.
+    category: tool_preference
+    confidence: 0.9
+    entities: [riverpod, provider, bloc, getx, flutter, state-management]
+
+  - statement: Generates immutable Dart models with freezed rather than hand-writing copyWith and equality.
+    category: tool_preference
+    confidence: 0.86
+    entities: [freezed, dart, built_value, codegen]
+
+  - statement: Defaults to Python for anything without a user interface.
+    category: tool_preference
+    confidence: 0.93
+    entities: [python]
+
+  - statement: Manages Python environments with uv and commits the lockfile, rather than conda or bare pip.
+    category: tool_preference
+    confidence: 0.89
+    entities: [uv, conda, pip, poetry, virtualenv]
+
+  - statement: Builds HTTP services with FastAPI and Pydantic rather than Flask or Django.
+    category: tool_preference
+    confidence: 0.9
+    entities: [fastapi, flask, django, pydantic]
+
+  - statement: Validates every boundary with Pydantic models, including configuration and stored records.
+    category: tool_preference
+    confidence: 0.88
+    entities: [pydantic, validation, dataclasses]
+
+  - statement: Uses Postgres by default and SQLite only where a running daemon would be in the way.
+    category: tool_preference
+    confidence: 0.87
+    entities: [postgres, sqlite, mysql, mongodb]
+
+  - statement: Uses Ruff for both linting and formatting, with no separate Black, isort or flake8.
+    category: tool_preference
+    confidence: 0.91
+    entities: [ruff, black, isort, flake8, pylint]
+
+  - statement: Reaches for LangGraph only when an agent loop needs checkpointing or resumability, and a plain loop otherwise.
+    category: tool_preference
+    confidence: 0.85
+    entities: [langgraph, crewai, autogen, langchain, agent]
+    note: Scoped deliberately. "Always use LangGraph" would be both wrong and unfalsifiable.
+
+  - statement: Starts detection and segmentation work from an Ultralytics YOLO baseline before anything custom.
+    category: tool_preference
+    confidence: 0.88
+    entities: [ultralytics, yolov8, detectron2, detection, segmentation]
+
+  - statement: Wraps every preprocessing step in a scikit-learn Pipeline so that tuning cannot leak.
+    category: tool_preference
+    confidence: 0.92
+    entities: [scikit-learn, pipeline, preprocessing, leakage]
+
+  - statement: Tries LightGBM or XGBoost on tabular data before reaching for a neural network.
+    category: tool_preference
+    confidence: 0.9
+    entities: [lightgbm, xgboost, catboost, tabular, mlp]
+
+  - statement: Uses Optuna rather than grid search once the search space is larger than a handful of points.
+    category: tool_preference
+    confidence: 0.86
+    entities: [optuna, grid-search, hyperopt, tuning]
+
+  - statement: Exports to ONNX Runtime for any CPU inference target rather than shipping the training runtime.
+    category: tool_preference
+    confidence: 0.87
+    entities: [onnx, onnxruntime, torchscript, cpu-inference, deployment]
+
+  - statement: Builds internal and demo interfaces in Streamlit rather than standing up a real frontend.
+    category: tool_preference
+    confidence: 0.85
+    entities: [streamlit, gradio, dash, demo]
+
+  - statement: Uses TypeScript with Next.js and Tailwind for web work, never plain JavaScript.
+    category: tool_preference
+    confidence: 0.89
+    entities: [typescript, javascript, nextjs, react, tailwindcss]
+
+  - statement: Validates API responses with Zod schemas shared between client and server.
+    category: tool_preference
+    confidence: 0.86
+    entities: [zod, typescript, io-ts, validation]
+
+  - statement: Runs local service dependencies through Docker Compose rather than installing them on the machine.
+    category: tool_preference
+    confidence: 0.87
+    entities: [docker, docker-compose, postgres, redis, environment]
+
+  # ------------------------------------------------------------ work_style --
+  - statement: Writes the evaluation harness before the pipeline it scores, because a system without a score has invisible regressions.
+    category: work_style
+    confidence: 0.9
+
+  - statement: Establishes the simplest baseline that could work first, and makes the complex version beat it explicitly before adopting it.
+    category: work_style
+    confidence: 0.92
+
+  - statement: Prefers one readable module over a package of tiny files split by pattern rather than by behaviour.
+    category: work_style
+    confidence: 0.86
+
+  - statement: Writes comments that explain why a decision was made, and leaves what the code does to the code.
+    category: work_style
+    confidence: 0.89
+
+  - statement: Uses one-line conventional commit subjects in the imperative, and adds a body only when it earns its place.
+    category: work_style
+    confidence: 0.91
+
+  - statement: Merges feature branches with --no-ff so the history shows the shape of the work rather than a flat line.
+    category: work_style
+    confidence: 0.87
+
+  - statement: Pins dependencies and commits the lockfile on the first day of a project, not after the first breakage.
+    category: work_style
+    confidence: 0.88
+    entities: [lockfile, dependencies, reproducibility]
+
+  - statement: Writes tests once an implementation settles, except for bug fixes, where the failing test comes first.
+    category: work_style
+    confidence: 0.85
+    entities: [pytest, testing, tdd]
+
+  - statement: Prefers a hard cap that fails loudly to a soft limit that degrades silently.
+    category: work_style
+    confidence: 0.88
+
+  - statement: Records decisions in the repository rather than in a notebook or a chat log.
+    category: work_style
+    confidence: 0.87
+
+  - statement: Ships a working end-to-end slice before broadening any single layer of it.
+    category: work_style
+    confidence: 0.9
+
+  - statement: Refuses to add a dependency for something that would take under fifty lines to write.
+    category: work_style
+    confidence: 0.85
+
+  - statement: Measures before optimising, and treats a profiler output as the only admissible evidence of a bottleneck.
+    category: work_style
+    confidence: 0.89
+
+  - statement: Names things for what they are rather than for their pattern, avoiding Manager, Helper and Util suffixes.
+    category: work_style
+    confidence: 0.87
+
+  - statement: Turns on strict type checking from the first commit instead of retrofitting it later.
+    category: work_style
+    confidence: 0.86
+    entities: [mypy, typescript, typing]
+
+  - statement: Makes optional integrations degrade to a deterministic fallback rather than failing the whole operation.
+    category: work_style
+    confidence: 0.88
+
+  # ------------------------------------------------------------- abandoned --
+  - statement: Abandoned Firebase and Firestore for anything with relational or time-series reads, after per-document costs scaled with history length.
+    category: abandoned
+    confidence: 0.9
+    entities: [firebase, firestore, nosql, supabase]
+    note: The clearest abandonment in the set. Note it is scoped; Firebase Auth on its own was not abandoned.
+    scope:
+      applies_to: relational and time-series reads
+      still_fine_for: authentication only
+
+  - statement: Abandoned Provider for Flutter state management after rebuild scoping became unmanageable in a real screen.
+    category: abandoned
+    confidence: 0.88
+    entities: [provider, flutter, changenotifier, riverpod]
+
+  - statement: Abandoned no-code and low-code app builders; every attempt was dropped within about two days.
+    category: abandoned
+    confidence: 0.86
+    entities: [no-code, low-code, bubble, flutterflow, retool]
+
+  - statement: Abandoned conda for Python environments after repeated drift between machines.
+    category: abandoned
+    confidence: 0.87
+    entities: [conda, anaconda, uv, environment]
+
+  - statement: Abandoned SMOTE for class imbalance; class weights held up on held-out data where SMOTE did not.
+    category: abandoned
+    confidence: 0.91
+    entities: [smote, imbalance, class-weights, oversampling]
+
+  - statement: Abandoned k-fold cross-validation on time series in favour of walk-forward validation.
+    category: abandoned
+    confidence: 0.92
+    entities: [kfold, cross-validation, walk-forward, time-series]
+
+  - statement: Abandoned transformer decoders for OCR where inference latency matters more than a point of character error rate.
+    category: abandoned
+    confidence: 0.84
+    entities: [trocr, transformer, crnn, ocr, latency]
+
+  # ------------------------------------------------------------ constraint --
+  - statement: Works as a single developer, so any process that needs a second reviewer to function does not function.
+    category: constraint
+    confidence: 0.95
+
+  - statement: The local GPU has 6 GB of memory, so training either fits in 6 GB or moves to a hosted notebook.
+    category: constraint
+    confidence: 0.9
+    entities: [gpu, vram, cuda, colab]
+
+  - statement: Prefers local-first tooling; repository content should not leave the machine except to a named extraction model.
+    category: constraint
+    confidence: 0.92
+    entities: [privacy, local-first]
+
+  - statement: The budget for paid APIs is small, so per-token and per-request cost is a real design constraint rather than an afterthought.
+    category: constraint
+    confidence: 0.91
+    entities: [cost, api, llm, tokens]
+
+  - statement: Develops on Windows with Git Bash and PowerShell, so anything Unix-only needs a documented alternative.
+    category: constraint
+    confidence: 0.93
+    entities: [windows, powershell, bash, wsl]
+
+  - statement: Works in evening and weekend blocks rather than full days, so work has to be resumable after a week away.
+    category: constraint
+    confidence: 0.88
+
+  - statement: These projects carry no production traffic and no availability target, so correctness matters more than uptime.
+    category: constraint
+    confidence: 0.89
