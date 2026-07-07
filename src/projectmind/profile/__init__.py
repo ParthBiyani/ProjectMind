@@ -15,10 +15,22 @@ from projectmind.profile.lifecycle import (
     retire,
     supersede,
 )
+from projectmind.profile.repository import (
+    DecaySweep,
+    ProfileRepository,
+    ProfileSlice,
+    ProfileStats,
+    ScoredStatement,
+)
 
 __all__ = [
     "ContradictionVerdict",
     "DecayOutcome",
+    "DecaySweep",
+    "ProfileRepository",
+    "ProfileSlice",
+    "ProfileStats",
+    "ScoredStatement",
     "TransitionError",
     "activate",
     "apply_decay",
