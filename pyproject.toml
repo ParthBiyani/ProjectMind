@@ -34,14 +34,20 @@ postgres = [
 embeddings = [
   "fastembed>=0.3",
 ]
+mcp = [
+  "mcp>=2.0",
+]
 dev = [
-  "projectmind[postgres]",
+  "projectmind[mcp,postgres]",
   "mypy>=1.10",
   "pytest>=8.2",
   "pytest-cov>=5.0",
   "ruff>=0.5",
   "types-pyyaml>=6.0",
 ]
+
+[project.scripts]
+projectmind-mcp = "projectmind.mcp.server:main"
 
 [project.urls]
 Homepage = "https://github.com/ParthBiyani/ProjectMind"
