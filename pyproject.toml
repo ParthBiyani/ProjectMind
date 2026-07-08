@@ -47,6 +47,7 @@ dev = [
 ]
 
 [project.scripts]
+projectmind = "projectmind.cli:main"
 projectmind-mcp = "projectmind.mcp.server:main"
 
 [project.urls]
