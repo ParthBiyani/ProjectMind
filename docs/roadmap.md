@@ -6,8 +6,8 @@ previous one is measured. Status is updated as each exit criterion is met.
 | Phase | Deliverable | Exit criterion | Status |
 |---|---|---|---|
 | 0 | Eval harness | 40 queries committed, scorer runs, baseline recorded | **complete** |
-| 1 | Profile memory + always-on injection | running in the daily workflow, profile slice under 800 tokens | in progress |
-| 2 | Project fingerprinting + the gate | gate precision ≥ 0.80 on the no-injection cases | not started |
+| 1 | Profile memory + always-on injection | running in the daily workflow, profile slice under 800 tokens | **complete** |
+| 2 | Project fingerprinting + the gate | gate precision ≥ 0.80 on the no-injection cases | in progress |
 | 3 | Cross-project episodic ingestion | `search_memory` live, precision@5 scored | not started |
 | 4 | Retrieval quality | precision ≥ 0.70, cross-project hit rate ≥ 30%, false injection ≤ 10% | not started |
 | 5 | Reflection loop + monthly review | ≥ 60% proposal acceptance, review under 5 minutes | not started |
@@ -35,5 +35,12 @@ one, and the phase is cut if it does not move the eval.
 |---|---|---|---|---|---|
 | 0 (null floor) | 2026-07-04 | 0.250 | 0.000 | 0.000 | 0.000 |
 | 0 (oracle ceiling) | 2026-07-04 | 1.000 | 1.000 | 0.375 | 0.000 |
+
+Phase 1 exit, measured on the seeded profile: the slice stays at 436–481 tokens
+against the 800 cap across Flutter, ML and unknown-stack fingerprints, and 15
+of 50 statements are selected. The Phase 0 eval is not re-run here because
+Phase 1 serves no episodic memory; its numbers would be identical to the null
+floor by construction. Retrieval scoring resumes at Phase 2, where the gate
+gives it something to measure.
 
 Methodology and the meaning of each metric: [evaluation.md](evaluation.md).
