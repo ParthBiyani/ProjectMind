@@ -58,9 +58,15 @@ def _launcher() -> str:
 
 
 def _claude_dir() -> Path:
+    """Where Claude Code keeps settings.json and hooks."""
     import os
 
     return Path(os.environ.get("CLAUDE_CONFIG_DIR") or Path.home() / ".claude")
+
+
+def _mcp_config_path() -> Path:
+    """Where Claude Code keeps user-scope MCP server registrations."""
+    return Path.home() / ".claude.json"
 
 
 def _load_json(path: Path) -> dict[str, Any]:
@@ -117,7 +123,7 @@ def claude_code(
     exactly where they are.
     """
     settings_path = _claude_dir() / "settings.json"
-    mcp_path = Path.home() / ".claude.json"
+    mcp_path = _mcp_config_path()
     changes: list[Change] = []
 
     if hooks:
@@ -240,7 +246,7 @@ def rules(
 def status() -> None:
     """Report what is installed where."""
     settings_path = _claude_dir() / "settings.json"
-    mcp_path = Path.home() / ".claude.json"
+    mcp_path = _mcp_config_path()
 
     rendered = table("target", "", "detail")
     hook_config = _load_json(settings_path).get("hooks") or {}
