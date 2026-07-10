@@ -10,14 +10,18 @@ from projectmind.fingerprint.manifests import (
     parse,
     summarise,
 )
+from projectmind.fingerprint.scanner import ProjectScanner, ScanResult, scan
 
 __all__ = [
     "FRAMEWORK_MARKERS",
     "IGNORED_DIRECTORIES",
     "ManifestFacts",
     "ManifestSummary",
+    "ProjectScanner",
+    "ScanResult",
     "is_manifest",
     "normalise_dependency",
     "parse",
+    "scan",
     "summarise",
 ]
