@@ -11,6 +11,7 @@ from projectmind.fingerprint.manifests import (
     parse,
     summarise,
 )
+from projectmind.fingerprint.matching import ProjectMatch, compare, rank_siblings, similarity_index
 from projectmind.fingerprint.scanner import ProjectScanner, ScanResult, scan
 
 __all__ = [
@@ -20,11 +21,15 @@ __all__ = [
     "FingerprintCache",
     "ManifestFacts",
     "ManifestSummary",
+    "ProjectMatch",
     "ProjectScanner",
     "ScanResult",
+    "compare",
     "is_manifest",
     "normalise_dependency",
     "parse",
+    "rank_siblings",
     "scan",
+    "similarity_index",
     "summarise",
 ]

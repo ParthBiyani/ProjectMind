@@ -17,7 +17,7 @@ from pathlib import Path
 import typer
 
 from projectmind import __version__
-from projectmind.cli import hook_cmd, install_cmd, profile_cmd
+from projectmind.cli import fingerprint_cmd, hook_cmd, install_cmd, profile_cmd
 from projectmind.cli._common import console, fail, note, ok, percent, service, table
 from projectmind.config import get_settings
 from projectmind.models import utcnow
@@ -32,6 +32,7 @@ app = typer.Typer(
 app.add_typer(profile_cmd.app, name="profile")
 app.add_typer(install_cmd.app, name="install")
 app.add_typer(hook_cmd.app, name="hook")
+app.add_typer(fingerprint_cmd.app, name="fingerprint")
 
 
 @app.callback(invoke_without_command=True)

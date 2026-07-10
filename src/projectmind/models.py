@@ -150,6 +150,18 @@ SIMILARITY_WEIGHTS: dict[str, float] = {
     "domain_hints": 0.10,
 }
 
+#: Floor on the renormalisation denominator, equal to the weight of the
+#: dependency component.
+#:
+#: Without it, two projects whose only comparable component is `languages`
+#: renormalise 0.15/0.15 and score a perfect 1.000 on the strength of "both are
+#: Python". Running this over a real projects folder produced exactly that: four
+#: unrelated repositories, no shared dependency between any of them, all
+#: reporting 1.000 similarity to each other. Flooring the denominator says that
+#: claiming a perfect match requires at least as much evidence as a full
+#: dependency overlap would provide; thinner evidence is capped proportionally.
+MIN_EVIDENCE_WEIGHT = 0.50
+
 
 def _jaccard(left: frozenset[str], right: frozenset[str]) -> float | None:
     """Jaccard overlap, or ``None`` when neither side has anything to compare."""
@@ -191,7 +203,9 @@ class Fingerprint(BaseModel):
 
         Components where both sides are empty are dropped and the remaining
         weights renormalised, so a project with no declared frameworks is not
-        penalised for it.
+        penalised for it. The denominator is floored at `MIN_EVIDENCE_WEIGHT`
+        so that a thin comparison cannot renormalise its way to a perfect
+        score: see the comment on that constant.
         """
         total_weight = 0.0
         accumulated = 0.0
@@ -203,7 +217,9 @@ class Fingerprint(BaseModel):
                 continue
             total_weight += weight
             accumulated += weight * overlap
-        return accumulated / total_weight if total_weight else 0.0
+        if total_weight <= 0.0:
+            return 0.0
+        return accumulated / max(total_weight, MIN_EVIDENCE_WEIGHT)
 
     def shares_any(self, entities: frozenset[str]) -> bool:
         """True when the prompt names something this project actually uses."""
