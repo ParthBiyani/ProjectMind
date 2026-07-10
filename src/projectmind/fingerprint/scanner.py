@@ -16,6 +16,7 @@ import hashlib
 import re
 import subprocess
 from collections import Counter
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -274,24 +275,13 @@ class ProjectScanner:
 
     @staticmethod
     def _manifest_hash(root: Path, manifests: list[Path]) -> str:
-        """Content hash over every manifest, so the cache invalidates precisely.
-
-        Hashing paths alone would miss a dependency being added; hashing the
-        whole tree would invalidate on every source edit. Manifest contents are
-        exactly the input the fingerprint is derived from.
-        """
-        digest = hashlib.sha256()
-        for manifest in sorted(manifests):
+        relatives = []
+        for manifest in manifests:
             try:
-                relative = manifest.relative_to(root)
+                relatives.append(str(manifest.relative_to(root)))
             except ValueError:
-                relative = manifest
-            digest.update(str(relative).replace("\\", "/").encode("utf-8"))
-            try:
-                digest.update(manifest.read_bytes())
-            except OSError:
-                continue
-        return digest.hexdigest()[:32]
+                relatives.append(str(manifest))
+        return manifest_digest(root, relatives) or ""
 
     @staticmethod
     def _git_remote(root: Path) -> str | None:
@@ -312,6 +302,28 @@ def scan(root: str | Path, **options: object) -> Fingerprint:
     """Convenience wrapper: scan a directory and return just the fingerprint."""
     scanner = ProjectScanner(**options)  # type: ignore[arg-type]
     return scanner.scan(root).fingerprint
+
+
+def manifest_digest(root: Path, relative_paths: Iterable[str]) -> str | None:
+    """Content hash over a known set of manifests.
+
+    Shared by the scanner and the cache so the two can never disagree about
+    what a fingerprint's `manifest_hash` means. Returns None when a listed file
+    has gone, which the cache reads as "rescan".
+
+    Hashing paths alone would miss a dependency being added; hashing the whole
+    tree would invalidate on every source edit. Manifest contents are exactly
+    the input the fingerprint is derived from.
+    """
+    digest = hashlib.sha256()
+    for relative in sorted(str(item).replace("\\", "/") for item in relative_paths):
+        path = root / relative
+        digest.update(relative.encode("utf-8"))
+        try:
+            digest.update(path.read_bytes())
+        except OSError:
+            return None
+    return digest.hexdigest()[:32]
 
 
 def _mentions(haystack: str, keyword: str) -> bool:
