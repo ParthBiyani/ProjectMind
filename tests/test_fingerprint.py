@@ -35,8 +35,13 @@ class TestManifestParsing:
         path = write(
             tmp_path,
             "pubspec.yaml",
-            "name: spendwise\ndependencies:\n  flutter:\n    sdk: flutter\n"
-            "  riverpod: ^2.5.0\n  supabase_flutter: ^2.0.0\ndev_dependencies:\n  build_runner: any\n",
+            "name: spendwise\n"
+            "dependencies:\n"
+            "  flutter:\n    sdk: flutter\n"
+            "  riverpod: ^2.5.0\n"
+            "  supabase_flutter: ^2.0.0\n"
+            "dev_dependencies:\n"
+            "  build_runner: any\n",
         )
         facts = manifests.parse(path)
         assert facts is not None
