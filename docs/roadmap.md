@@ -7,8 +7,8 @@ previous one is measured. Status is updated as each exit criterion is met.
 |---|---|---|---|
 | 0 | Eval harness | 40 queries committed, scorer runs, baseline recorded | **complete** |
 | 1 | Profile memory + always-on injection | running in the daily workflow, profile slice under 800 tokens | **complete** |
-| 2 | Project fingerprinting + the gate | gate precision ≥ 0.80 on the no-injection cases | in progress |
-| 3 | Cross-project episodic ingestion | `search_memory` live, precision@5 scored | not started |
+| 2 | Project fingerprinting + the gate | gate precision ≥ 0.80 on the no-injection cases | **complete** |
+| 3 | Cross-project episodic ingestion | `search_memory` live, precision@5 scored | in progress |
 | 4 | Retrieval quality | precision ≥ 0.70, cross-project hit rate ≥ 30%, false injection ≤ 10% | not started |
 | 5 | Reflection loop + monthly review | ≥ 60% proposal acceptance, review under 5 minutes | not started |
 | 6 | Browser and AI chat capture | measurable improvement on the Phase 0 eval, or cut | deferred |
@@ -35,6 +35,7 @@ one, and the phase is cut if it does not move the eval.
 |---|---|---|---|---|---|
 | 0 (null floor) | 2026-07-04 | 0.250 | 0.000 | 0.000 | 0.000 |
 | 0 (oracle ceiling) | 2026-07-04 | 1.000 | 1.000 | 0.375 | 0.000 |
+| 2 (gate, no retriever) | 2026-07-12 | **1.000** | 0.000 | 0.000 | 0.000 |
 
 Phase 1 exit, measured on the seeded profile: the slice stays at 436–481 tokens
 against the 800 cap across Flutter, ML and unknown-stack fingerprints, and 15
@@ -42,5 +43,13 @@ of 50 statements are selected. The Phase 0 eval is not re-run here because
 Phase 1 serves no episodic memory; its numbers would be identical to the null
 floor by construction. Retrieval scoring resumes at Phase 2, where the gate
 gives it something to measure.
+
+Phase 2 exit: gate precision **1.000** against a target of 0.80, with all ten
+no-injection cases correctly served nothing and zero budget breaches. Task-type
+accuracy is 0.850 and episodic-gate agreement 0.900; the six task-type
+disagreements are all "implement versus architect" on prompts phrased *how
+should I...*, which route to the same place. `precision@5` and the cross-project
+rate are still zero because no retriever is attached yet — that is Phase 4, and
+scoring it now would be scoring an empty index.
 
 Methodology and the meaning of each metric: [evaluation.md](evaluation.md).

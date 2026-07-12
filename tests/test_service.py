@@ -116,7 +116,7 @@ class TestGetContext:
     def test_an_empty_profile_serves_nothing_and_says_why(self, memory: MemoryService) -> None:
         bundle = memory.get_context("Add Supabase auth", Path.cwd())
         assert bundle.is_empty
-        assert bundle.gate_reason == "no active profile statements"
+        assert "no profile statement cleared the relevance floor" in bundle.gate_reason
         assert bundle.render() == ""
 
     def test_proposed_statements_are_never_served(self, memory: MemoryService) -> None:
@@ -141,7 +141,7 @@ class TestGetContext:
         """Deliberate exploration has to be able to run clean."""
         bundle = seeded.get_context("Try something new", Path.cwd(), ignore_profile=True)
         assert bundle.is_empty
-        assert bundle.gate_reason == "profile suppressed by the caller"
+        assert "profile suppressed by the caller" in bundle.gate_reason
 
     def test_max_tokens_narrows_the_budget_but_cannot_widen_it(self, seeded: MemoryService) -> None:
         narrow = seeded.get_context("Add Supabase auth", Path.cwd(), max_tokens=80)

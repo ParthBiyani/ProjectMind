@@ -4,40 +4,66 @@ Everything that answers `get_context` lives here rather than in the MCP layer,
 for one reason: the MCP server, the CLI and the eval harness must take exactly
 the same code path. The moment retrieval logic leaks into a transport adapter,
 the number the eval prints stops describing what the agent actually receives.
+
+The path is: identify the project, read the prompt, ask the gate, fetch what the
+gate allows, enforce the budget, log the decision. Every stage may return
+nothing, and nothing is a correct answer.
 """
 
 from __future__ import annotations
 
 import hashlib
-import subprocess
 import time
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+from typing import Protocol
 from uuid import UUID
 
 from projectmind import entities as entity_matching
 from projectmind.config import Settings, get_settings
+from projectmind.fingerprint.cache import FingerprintCache
+from projectmind.gate import budget as budgeting
+from projectmind.gate.prompt_analysis import PromptAnalysis, classify
+from projectmind.gate.rules import GateDecision, decide, describe
 from projectmind.logging import get_logger
-from projectmind.models import ContextBundle, Fingerprint, Project, utcnow
+from projectmind.models import ContextBundle, Fingerprint, Project, ServedRecord, utcnow
 from projectmind.profile.repository import ProfileRepository, ProfileSlice
 from projectmind.storage import Store, open_store
 from projectmind.storage.base import BundleLogEntry, UsageStats
 
 log = get_logger(__name__)
 
-_GIT_REMOTE_TIMEOUT = 2.0
+
+class EpisodicRetriever(Protocol):
+    """Whatever can answer an episodic query.
+
+    Left as a protocol so the front door can be finished and measured before
+    retrieval exists. Until one is attached, the gate may allow the episodic
+    slice and the slice is simply empty, which the bundle reports honestly.
+    """
+
+    def retrieve(
+        self,
+        decision: GateDecision,
+        *,
+        project: Project | None,
+        fingerprint: Fingerprint,
+        limit: int,
+    ) -> Sequence[ServedRecord]: ...
 
 
 @dataclass(slots=True)
 class ResolvedProject:
-    """Who is asking. In Phase 1 this is identity only; the fingerprint is empty."""
+    """Who is asking."""
 
     key: str
     name: str
     root: Path | None
     git_remote: str | None
     fingerprint: Fingerprint
+    record: Project | None = None
 
     @property
     def is_known(self) -> bool:
@@ -47,10 +73,18 @@ class ResolvedProject:
 class MemoryService:
     """Reads memory and answers questions about it. Owns no transport."""
 
-    def __init__(self, store: Store, settings: Settings | None = None) -> None:
+    def __init__(
+        self,
+        store: Store,
+        settings: Settings | None = None,
+        *,
+        retriever: EpisodicRetriever | None = None,
+    ) -> None:
         self.settings = settings or get_settings()
         self.store = store
         self.profile = ProfileRepository(store, self.settings)
+        self.fingerprints = FingerprintCache(store)
+        self.retriever = retriever
 
     @classmethod
     def open(cls, settings: Settings | None = None) -> MemoryService:
@@ -77,32 +111,26 @@ class MemoryService:
         now: datetime | None = None,
         log_bundle: bool = True,
     ) -> ContextBundle:
-        """Return the smallest bundle that improves the next action.
-
-        An empty bundle is a correct answer and is logged as one, because
-        "chose not to inject" is a decision that has to be measurable.
-        """
+        """Return the smallest bundle that improves the next action."""
         started = time.perf_counter()
         moment = now or utcnow()
+
         project = self.resolve_project(project_path)
-        prompt_entities = self.extract_entities(prompt)
+        analysis = self.analyse(prompt, project.fingerprint)
+        decision = decide(
+            analysis,
+            fingerprint=project.fingerprint,
+            episodic_available=self.store.count_records() > 0,
+            settings=self.settings,
+        )
 
-        if ignore_profile:
-            bundle = ContextBundle(
-                generated_at=moment,
-                project_key=project.key,
-                entities=prompt_entities,
-                gate_reason="profile suppressed by the caller",
-            )
-        else:
-            slice_ = self.profile.select(
-                fingerprint=project.fingerprint,
-                entities=prompt_entities,
-                now=moment,
-                token_budget=self._profile_budget(max_tokens),
-            )
-            bundle = self._bundle_from_profile(slice_, project, prompt_entities, moment)
-
+        bundle = self._assemble(
+            decision,
+            project,
+            moment,
+            ignore_profile=ignore_profile,
+            max_tokens=max_tokens,
+        )
         bundle = bundle.model_copy(
             update={"latency_ms": round((time.perf_counter() - started) * 1000.0, 3)}
         )
@@ -110,27 +138,69 @@ class MemoryService:
             self._log(bundle, prompt)
         return bundle
 
-    def _bundle_from_profile(
+    def _assemble(
         self,
-        slice_: ProfileSlice,
+        decision: GateDecision,
         project: ResolvedProject,
-        prompt_entities: tuple[str, ...],
         moment: datetime,
+        *,
+        ignore_profile: bool,
+        max_tokens: int | None,
     ) -> ContextBundle:
-        if slice_.is_empty:
-            reason = (
-                "no active profile statements"
-                if slice_.considered == 0
-                else "no profile statement cleared the relevance floor"
+        analysis = decision.analysis
+
+        if decision.skips_everything:
+            return ContextBundle(
+                generated_at=moment,
+                project_key=project.key,
+                task_type=analysis.task_type,
+                entities=analysis.entities,
+                gate_reason=describe(decision),
             )
-        else:
-            reason = f"profile slice: {len(slice_.statements)} of {slice_.considered} statements"
+
+        profile_slice = ProfileSlice()
+        if decision.inject_profile and not ignore_profile:
+            profile_slice = self.profile.select(
+                fingerprint=project.fingerprint,
+                entities=analysis.entities,
+                now=moment,
+                token_budget=self._profile_budget(max_tokens),
+            )
+
+        episodic = budgeting.BudgetReport((), 0)
+        if decision.inject_episodic and self.retriever is not None:
+            candidates = self.retriever.retrieve(
+                decision,
+                project=project.record,
+                fingerprint=project.fingerprint,
+                limit=self.settings.max_episodic_records * 3,
+            )
+            episodic = budgeting.fit_records(
+                candidates,
+                token_cap=self.settings.episodic_token_cap,
+                max_records=self.settings.max_episodic_records,
+            )
+            episodic = budgeting.enforce_total(
+                profile_slice.tokens, episodic, settings=self.settings
+            )
+
+        reason = describe(decision)
+        if ignore_profile:
+            reason = f"{reason}; profile suppressed by the caller"
+        elif decision.inject_profile and profile_slice.is_empty:
+            reason = f"{reason}; no profile statement cleared the relevance floor"
+        if decision.inject_episodic and not episodic.kept:
+            reason = f"{reason}; nothing in episodic memory cleared the bar"
+
         return ContextBundle(
             generated_at=moment,
             project_key=project.key,
-            profile=slice_.served(),
-            profile_tokens=slice_.tokens,
-            entities=prompt_entities,
+            task_type=analysis.task_type,
+            entities=analysis.entities,
+            profile=profile_slice.served(),
+            episodic=episodic.kept,
+            profile_tokens=profile_slice.tokens,
+            episodic_tokens=episodic.tokens,
             gate_reason=reason,
         )
 
@@ -140,30 +210,53 @@ class MemoryService:
         return min(self.settings.profile_token_cap, max(0, max_tokens))
 
     # --- supporting reads --------------------------------------------------
-    def extract_entities(self, prompt: str) -> tuple[str, ...]:
-        """Match the prompt against the entities memory actually holds."""
-        vocabulary = entity_matching.build_vocabulary(
-            *(statement.entities for statement in self.profile.active())
+    def analyse(self, prompt: str, fingerprint: Fingerprint | None = None) -> PromptAnalysis:
+        return classify(
+            prompt,
+            vocabulary=sorted(self.vocabulary()),
+            fingerprint=fingerprint,
+            settings=self.settings,
         )
-        return entity_matching.extract(prompt, vocabulary)
+
+    def vocabulary(self) -> frozenset[str]:
+        """Every entity memory holds, profile and episodic alike.
+
+        Closed-vocabulary matching means a hit is evidence that there is
+        something to retrieve, rather than evidence that the prompt contained
+        an English noun.
+        """
+        from_profile = (statement.entities for statement in self.profile.active())
+        from_records = (record.entities for record in self.store.list_records())
+        return entity_matching.build_vocabulary(*from_profile, *from_records)
+
+    def extract_entities(self, prompt: str) -> tuple[str, ...]:
+        return entity_matching.extract(prompt, self.vocabulary())
 
     def resolve_project(self, project_path: str | Path | None) -> ResolvedProject:
-        """Identify the calling project and record that it was seen.
-
-        Phase 1 establishes identity only. Phase 2 attaches a real fingerprint
-        computed from manifests; until then `fingerprint` is empty and profile
-        selection falls back to stack-agnostic statements.
-        """
+        """Identify the calling project, fingerprint it, record that it was seen."""
         if project_path is None:
             return ResolvedProject("unknown", "unknown", None, None, Fingerprint())
 
         root = Path(project_path).expanduser()
-        remote = _git_remote(root)
+        fingerprint = self.fingerprints.get(project_key(root, None), root).fingerprint
+        remote = fingerprint.git_remote
         key = project_key(root, remote)
-        stored = self.store.get_project(key)
-        fingerprint = stored.fingerprint if stored else Fingerprint(git_remote=remote)
 
-        self.store.upsert_project(
+        if remote and key != project_key(root, None):
+            # The remote gives a better identity than the directory name, so
+            # re-key the cache entry rather than keeping two of them.
+            self.fingerprints.store.put_cached_fingerprint(key, fingerprint)
+
+        # A scan that found nothing must not erase what is already known. The
+        # directory may have moved, be on an unmounted drive, or be a project
+        # that was registered by ingestion rather than by being opened.
+        if fingerprint.is_empty:
+            known = self.store.get_project(key)
+            if known is not None and not known.fingerprint.is_empty:
+                fingerprint = known.fingerprint
+                remote = fingerprint.git_remote or remote
+
+        stored = self.store.upsert_project(
             Project(
                 key=key,
                 name=root.name or key,
@@ -173,7 +266,7 @@ class MemoryService:
                 last_active=utcnow(),
             )
         )
-        return ResolvedProject(key, root.name or key, root, remote, fingerprint)
+        return ResolvedProject(key, root.name or key, root, remote, fingerprint, stored)
 
     # --- telemetry ---------------------------------------------------------
     def feedback(self, bundle_id: UUID, *, useful: bool, note: str = "") -> bool:
@@ -222,7 +315,7 @@ def project_key(root: Path, git_remote: str | None) -> str:
 
     Derived from the git remote when there is one, so the same repository
     cloned to two directories is one project rather than two. Falls back to the
-    directory name, which is what most of `D:/Project Eris` looks like.
+    directory name, which is what most unversioned local folders look like.
     """
     if git_remote:
         cleaned = git_remote.removesuffix(".git").rstrip("/")
@@ -238,21 +331,3 @@ def slugify(value: str) -> str:
     while "--" in cleaned:
         cleaned = cleaned.replace("--", "-")
     return cleaned.strip("-") or "unknown"
-
-
-def _git_remote(root: Path) -> str | None:
-    """`git remote get-url origin`, or None. Never raises, never blocks long."""
-    if not root.exists():
-        return None
-    try:
-        result = subprocess.run(
-            ["git", "-C", str(root), "remote", "get-url", "origin"],
-            capture_output=True,
-            text=True,
-            timeout=_GIT_REMOTE_TIMEOUT,
-            check=False,
-        )
-    except (OSError, subprocess.SubprocessError):
-        return None
-    remote = result.stdout.strip()
-    return remote or None
