@@ -247,6 +247,15 @@ class MemoryService:
             # re-key the cache entry rather than keeping two of them.
             self.fingerprints.store.put_cached_fingerprint(key, fingerprint)
 
+        # A scan that found nothing must not erase what is already known. The
+        # directory may have moved, be on an unmounted drive, or be a project
+        # that was registered by ingestion rather than by being opened.
+        if fingerprint.is_empty:
+            known = self.store.get_project(key)
+            if known is not None and not known.fingerprint.is_empty:
+                fingerprint = known.fingerprint
+                remote = fingerprint.git_remote or remote
+
         stored = self.store.upsert_project(
             Project(
                 key=key,
