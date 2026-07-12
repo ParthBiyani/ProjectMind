@@ -120,7 +120,10 @@ TASK_SIGNALS: dict[TaskType, tuple[str, ...]] = {
         r"\bstructure\b",
         r"\bhow should i\b",
         r"\bwhat'?s the best way\b",
-        r"\b\w+ or \w+\?",
+        # An alternation inside a question is a choice being posed, whether or
+        # not the "?" lands immediately after it: "Firebase or Supabase for the
+        # backend?" is the same question as "Firebase or Supabase?".
+        r"\b[\w.-]+ or [\w.-]+\b(?=[^?]*\?)",
         r"\bstarting a new\b",
         r"\bfrom scratch\b",
         r"\btrade-?offs?\b",
@@ -266,7 +269,7 @@ def classify(
             trivial_reason=trivial_reason,
         )
 
-    scores = {task: len(_matches(patterns, text)) for task, patterns in TASK_SIGNALS.items()}
+    scores = {task: _signal_strength(patterns, text) for task, patterns in TASK_SIGNALS.items()}
     best = max(
         TASK_PRIORITY,
         key=lambda task: (scores.get(task, 0), -TASK_PRIORITY.index(task)),
