@@ -84,6 +84,10 @@ class MemoryService:
         self.store = store
         self.profile = ProfileRepository(store, self.settings)
         self.fingerprints = FingerprintCache(store)
+        if retriever is None:
+            from projectmind.retrieval.retriever import BaselineRetriever
+
+            retriever = BaselineRetriever(store, self.settings)
         self.retriever = retriever
 
     @classmethod
@@ -277,6 +281,30 @@ class MemoryService:
 
     def stats(self, *, since: datetime | None = None) -> UsageStats:
         return self.store.usage_stats(since=since)
+
+    def search(
+        self,
+        query: str,
+        *,
+        project_key: str | None = None,
+        types: Sequence[str] = (),
+        limit: int = 10,
+    ) -> list[ServedRecord]:
+        """Free-text search over episodic memory.
+
+        The deliberate, human-initiated path. `get_context` is the automatic
+        one; this is for "what did I do about X last time", asked out loud.
+        """
+        from projectmind.retrieval.retriever import search as run_search
+
+        return run_search(
+            self.store,
+            query,
+            settings=self.settings,
+            project_key=project_key,
+            types=types,
+            limit=limit,
+        )
 
     def _log(self, bundle: ContextBundle, prompt: str) -> None:
         try:
