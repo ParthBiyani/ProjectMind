@@ -85,9 +85,9 @@ class MemoryService:
         self.profile = ProfileRepository(store, self.settings)
         self.fingerprints = FingerprintCache(store)
         if retriever is None:
-            from projectmind.retrieval.retriever import BaselineRetriever
+            from projectmind.retrieval.hybrid import HybridRetriever
 
-            retriever = BaselineRetriever(store, self.settings)
+            retriever = HybridRetriever(store, self.settings)
         self.retriever = retriever
 
     @classmethod

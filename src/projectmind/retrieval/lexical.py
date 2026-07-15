@@ -14,6 +14,7 @@ which is why the results are fused rather than one being chosen.
 from __future__ import annotations
 
 import math
+import re
 from collections import Counter
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
@@ -127,10 +128,19 @@ class BM25Index:
 
 
 def document_tokens(record: EpisodicRecord) -> list[str]:
-    """The token stream one record contributes to the index."""
+    """The token stream one record contributes to the index.
+
+    Hyphenated entities are indexed whole *and* split. The tokenizer keeps
+    hyphens so that `scikit-learn` survives as one term, which means
+    `state-management` is a single token and the query word "state" cannot
+    reach it. Indexing both forms costs two tokens and fixes a class of miss
+    where the developer types the words and memory has the slug.
+    """
     tokens = tokenize(record.searchable_text)
     for entity in record.entities:
-        tokens.extend(tokenize(entity) * ENTITY_WEIGHT)
+        forms = tokenize(entity)
+        forms.extend(part for part in re.split(r"[-_.]", entity) if len(part) > 1)
+        tokens.extend(list(dict.fromkeys(forms)) * ENTITY_WEIGHT)
     tokens.append(str(record.type))
     return tokens
 

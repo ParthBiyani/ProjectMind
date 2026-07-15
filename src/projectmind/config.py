@@ -50,11 +50,14 @@ class Settings(BaseSettings):
 
     # --- ranking -----------------------------------------------------------
     cross_project_boost: float = Field(
-        default=1.25,
+        default=1.45,
         description=(
             "Multiplier applied to records from other projects. Without it a "
             "mediocre same-repo result outranks a strong cross-repo one, which "
-            "is the entire failure mode this system exists to avoid."
+            "is the entire failure mode this system exists to avoid. Swept "
+            "against the eval set in Phase 4: 1.25 lost the cross-project "
+            "target once the precision floors were tight enough to matter, "
+            "1.70 met it but pushed false injection to 0.33."
         ),
     )
     recency_half_life_days: float = 240.0

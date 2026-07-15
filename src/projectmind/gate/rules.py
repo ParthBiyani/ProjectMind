@@ -30,9 +30,16 @@ from projectmind.models import Fingerprint, RecordType, TaskType
 #: budget that a past bug would have used better.
 RECORD_TYPES_FOR_TASK: dict[TaskType, tuple[RecordType, ...]] = {
     TaskType.DEBUG: (RecordType.FAILURE, RecordType.REVERSAL),
+    # Failures belong here. Choosing an approach is exactly when "this blew up
+    # last time" matters, and excluding them cost two eval queries outright:
+    # asked what augmentation to use, the gate could only offer the decision to
+    # label in Roboflow, never the mosaic augmentation that collapsed mAP.
+    # Serving the decision without the failure that followed it is half a
+    # lesson, which is worse than none because it reads as complete.
     TaskType.ARCHITECT: (
         RecordType.DECISION,
         RecordType.REVERSAL,
+        RecordType.FAILURE,
         RecordType.EXPERIMENT,
         RecordType.RESEARCH,
     ),
@@ -41,6 +48,7 @@ RECORD_TYPES_FOR_TASK: dict[TaskType, tuple[RecordType, ...]] = {
         RecordType.EXPERIMENT,
         RecordType.RESEARCH,
         RecordType.REVERSAL,
+        RecordType.FAILURE,
     ),
     TaskType.REFACTOR: (
         RecordType.DECISION,
