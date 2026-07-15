@@ -70,7 +70,7 @@ MINIMUM_SCORE = 0.38
 #: This is what makes the number of results depend on the question rather than
 #: on the cap: a query with one strong answer serves one record, a query with
 #: four comparable answers serves four.
-RELATIVE_FLOOR = 0.80
+RELATIVE_FLOOR = 0.78
 
 #: Fusion weights. Lexical leads because exact technical tokens are the most
 #: reliable signal in this corpus, and because the default embedder is a
@@ -81,6 +81,17 @@ VECTOR_WEIGHT = 0.4
 #: How much the rank-based tie-break contributes. Small on purpose: it exists
 #: to order records the two scores rate equally, not to move them.
 TIE_BREAK_WEIGHT = 0.1
+
+#: Absolute cosine floor, applied *before* normalisation.
+#:
+#: Normalising to the best hit means there is always a result scoring 1.0, even
+#: when every candidate is unrelated. Asked about "kubernetes ingress
+#: certificate rotation" against a corpus containing none of those things, the
+#: least-bad match normalised to 1.0 and was served with a final score of 0.945.
+#: The relative floor cannot catch this because the problem is that the whole
+#: set is bad, and a relative measure has nothing to be relative to. An absolute
+#: gate is the only thing that can say "none of these are close enough".
+MIN_VECTOR_SIMILARITY = 0.15
 
 
 @dataclass(slots=True)
@@ -261,7 +272,7 @@ class HybridRetriever:
         scored = [
             (hit.record.id, hit.similarity)
             for hit in self.store.vector_search(embedded, limit=limit * 4)
-            if hit.record.id in allowed and hit.similarity > 0.0
+            if hit.record.id in allowed and hit.similarity >= MIN_VECTOR_SIMILARITY
         ]
         return scored[:limit]
 
