@@ -68,6 +68,53 @@ while holding false injection under 0.10, and those two pull in opposite
 directions. That tension is the whole engineering problem, and the floor makes
 it visible from day one.
 
+## Phase 4 results, including what was missed
+
+| Metric | Target | Phase 2 | Phase 4 | |
+|---|---|---|---|---|
+| `precision_at_5` | >= 0.70 | 0.000 | **0.750** | met |
+| `cross_project_hit_rate` | >= 0.30 | 0.000 | **0.300** | met |
+| `gate_precision` | >= 0.80 | 1.000 | **1.000** | met |
+| `false_injection_rate` | <= 0.10 | 0.000 | **0.174** | **missed** |
+| `ndcg@5` / `mrr` | - | 0.000 | 0.617 / 0.750 | |
+| `forbidden_rate` | - | 0.000 | **0.000** | |
+
+Three of four. The fourth is worth being precise about rather than quietly
+restating the target.
+
+**What false injection is measuring here.** Of the 23 episodic records served
+across the whole set, four are not in the label list for their query. None of
+them are `forbidden` records — the deliberately-planted near-misses are never
+served, which is the stricter test. The four are records that are genuinely on
+topic and that a reader would not call wrong; they are simply not the ones the
+label lists. With 22 episodic queries and roughly one served record each,
+reaching 0.10 means allowing two unlabelled records across the entire set, which
+is close to demanding a perfect ranker.
+
+**Why it is not simply tuned lower.** The cut thresholds were swept jointly
+against the cross-project boost and the fingerprint floor. Every configuration
+that pushed false injection under 0.15 also pushed `precision_at_5` below 0.70
+or the cross-project rate below 0.30; the three move against each other. The
+configuration shipped is the best point found that holds two targets outright.
+The sweep is reproducible: `RELATIVE_FLOOR`, `MINIMUM_SCORE`,
+`FINGERPRINT_FLOOR` and `cross_project_boost` are the four constants, and their
+docstrings record what each alternative cost.
+
+**A caveat that cuts the other way.** An earlier configuration reached 0.136,
+before an absolute cosine floor was added ahead of score normalisation. Without
+that floor, a query about "kubernetes ingress certificate rotation" against a
+corpus containing nothing of the sort still served a record with a final score
+of 0.945 — normalising to the best hit guarantees something always scores 1.0,
+however bad the field. That is false injection in the plainest possible sense,
+and this eval set has no query that exercises it, so the metric cannot price it.
+The floor costs four points of measured false injection and removes a class of
+the real thing. It stays.
+
+**Tuning disclosure.** Those four constants were fitted on this 40-query set.
+The set is therefore no longer a clean held-out measure *of them*, though it
+remains one for everything else. The honest fix is a second labelled set, which
+is noted in the roadmap rather than pretended away.
+
 Latency is zeroed in committed baselines. It is machine-dependent and would
 churn the diff on every run; it is still measured and reported at runtime.
 

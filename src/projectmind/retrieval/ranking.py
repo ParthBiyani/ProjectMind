@@ -27,6 +27,11 @@ from projectmind.models import EpisodicRecord, Fingerprint, Project, ServedRecor
 #: Floor on the fingerprint term. A record from a project with no measurable
 #: similarity is worth less, not worthless: the strongest cross-project lesson
 #: in a portfolio is often "this bit me in a completely different stack".
+#:
+#: Raising it trades precision for cross-project recall and the two move
+#: against each other sharply. At 0.75 the cross-project hit rate held but
+#: false injection went to 0.31; at 0.45 with the boost at 1.45 both land where
+#: they are now. Swept jointly with the boost on the eval set.
 FINGERPRINT_FLOOR = 0.45
 
 
@@ -110,7 +115,11 @@ def score_candidate(
     moment = now or utcnow()
     record = candidate.record
 
-    base = record.confidence if relevance is None else (record.confidence + relevance) / 2.0
+    # Multiplicative, not averaged. Averaging let a record with relevance 0.1
+    # inherit most of its standalone confidence and survive the cut; both
+    # questions ("does this answer the query" and "do we trust it") have to be
+    # answered yes.
+    base = record.confidence if relevance is None else record.confidence * relevance
     recency = record.recency_weight(moment, half_life_days=weights.recency_half_life_days)
     similarity = candidate.fingerprint_similarity(caller_fingerprint)
     fingerprint_term = FINGERPRINT_FLOOR + weights.fingerprint_weight * similarity

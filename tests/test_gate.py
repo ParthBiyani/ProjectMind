@@ -149,10 +149,27 @@ class TestGatingRules:
         assert RecordType.FAILURE in decision.record_types
         assert RecordType.DECISION not in decision.record_types
 
-    def test_an_architect_prompt_asks_for_decisions_not_failures(self) -> None:
+    def test_an_architect_prompt_asks_for_decisions_and_the_failures_that_followed(
+        self,
+    ) -> None:
+        """Failures used to be excluded here, and that was wrong.
+
+        Asked what augmentation to use, the gate could offer the decision to
+        label in Roboflow but never the mosaic augmentation that collapsed mAP.
+        A decision without the failure that followed it reads as complete and
+        is not.
+        """
         decision = decide(analyse("How should I structure this service?"), settings=SETTINGS)
         assert RecordType.DECISION in decision.record_types
-        assert RecordType.FAILURE not in decision.record_types
+        assert RecordType.FAILURE in decision.record_types
+
+    def test_a_debug_prompt_still_excludes_decisions(self) -> None:
+        """The asymmetry is deliberate: a stack trace is not answered by a choice."""
+        decision = decide(
+            analyse("It crashes on startup with a null reference."), settings=SETTINGS
+        )
+        assert RecordType.FAILURE in decision.record_types
+        assert RecordType.DECISION not in decision.record_types
 
     def test_a_named_entity_opens_the_episodic_slice(self, vocabulary: list[str]) -> None:
         decision = decide(analyse("Add supabase auth here", vocabulary), settings=SETTINGS)
