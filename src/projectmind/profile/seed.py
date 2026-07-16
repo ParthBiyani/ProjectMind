@@ -122,8 +122,19 @@ def seed_profile(
     file and accepts all of it; the default leaves everything for review.
     """
     seed_file = SeedFile.load(path)
-    existing = {statement.statement.strip().lower() for statement in repository.all()}
+    stored = repository.all()
+    existing = {statement.statement.strip().lower() for statement in stored}
     result = SeedResult()
+
+    if activate:
+        # `--activate-all` means "I have read the file and accept it", which has
+        # to include statements a previous run already loaded as proposals.
+        # Otherwise `init` followed by `seed --activate-all` activates nothing,
+        # because every statement is a duplicate by then.
+        for statement in stored:
+            if statement.status is StatementStatus.PROPOSED:
+                repository.add(statement.model_copy(update={"status": StatementStatus.ACTIVE}))
+                result.activated += 1
 
     for entry in seed_file.statements:
         if entry.statement.strip().lower() in existing:
