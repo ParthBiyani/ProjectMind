@@ -37,8 +37,11 @@ embeddings = [
 mcp = [
   "mcp>=2.0",
 ]
+reflection = [
+  "langgraph>=0.2",
+]
 dev = [
-  "projectmind[mcp,postgres]",
+  "projectmind[mcp,postgres,reflection]",
   "mypy>=1.10",
   "pytest>=8.2",
   "pytest-cov>=5.0",
