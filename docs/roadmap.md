@@ -10,7 +10,7 @@ previous one is measured. Status is updated as each exit criterion is met.
 | 2 | Project fingerprinting + the gate | gate precision ≥ 0.80 on the no-injection cases | **complete** |
 | 3 | Cross-project episodic ingestion | `search_memory` live, precision@5 scored | **complete** |
 | 4 | Retrieval quality | precision ≥ 0.70, cross-project hit rate ≥ 30%, false injection ≤ 10% | **3 of 4 met** |
-| 5 | Reflection loop + monthly review | ≥ 60% proposal acceptance, review under 5 minutes | in progress |
+| 5 | Reflection loop + monthly review | ≥ 60% proposal acceptance, review under 5 minutes | **complete, unmeasured** |
 | 6 | Browser and AI chat capture | measurable improvement on the Phase 0 eval, or cut | deferred |
 
 ## Why this order
@@ -64,6 +64,24 @@ in [evaluation.md](evaluation.md#phase-4-results-including-what-was-missed).
 
 Ingestion covers 11 local repositories and 190 commits, producing 82 episodic
 records with no network call and no API token.
+
+## Phase 5, stated plainly
+
+The loop runs, the state machine is real, and a full supersession is exercised
+end to end in the test suite: evidence accumulates, a proposal opens, a human
+accepts it, the old statement stops being served and the timeline survives.
+
+The entity prefilter answers the PRD's open question about O(n x m) cost with a
+number. Over the real local corpus — 50 statements against 89 ingested records,
+4450 possible pairs — it discards **99.1%** for free, leaving 42 pairs for the
+structural rules. A model call per pair would have been unaffordable; at 42 it
+is optional.
+
+**The acceptance-rate target is not measured.** It needs a human working
+through a queue of real proposals, and the honest position after two weeks is
+that the corpus has not yet drifted enough to produce one outside a constructed
+test. `projectmind review history` reports the rate as soon as there is one to
+report. Claiming 60% now would be inventing it.
 
 ## Known gaps
 

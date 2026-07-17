@@ -24,6 +24,7 @@ from projectmind.cli import (
     ingest_cmd,
     install_cmd,
     profile_cmd,
+    review_cmd,
 )
 from projectmind.cli._common import console, fail, note, ok, percent, service, table
 from projectmind.config import get_settings
@@ -42,6 +43,7 @@ app.add_typer(hook_cmd.app, name="hook")
 app.add_typer(fingerprint_cmd.app, name="fingerprint")
 app.add_typer(eval_cmd.app, name="eval")
 app.add_typer(ingest_cmd.app, name="ingest")
+app.add_typer(review_cmd.app, name="review")
 
 
 @app.callback(invoke_without_command=True)
