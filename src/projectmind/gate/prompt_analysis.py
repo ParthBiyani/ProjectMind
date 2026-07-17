@@ -131,6 +131,18 @@ TASK_SIGNALS: dict[TaskType, tuple[str, ...]] = {
         r"\boptions\b",
     ),
     TaskType.EXPLORE: (
+        # Questions explicitly about the developer's own past. These are the
+        # canonical case for a cross-project memory layer and were landing in
+        # `implement` by default, which serves nothing without a named entity:
+        # "How did I set up the eval harness before?" returned an empty bundle
+        # against a corpus that contained the answer.
+        r"\bhow did i\b",
+        r"\bwhat did i\b",
+        r"\bdid i (?:ever|use|try|do|end up)\b",
+        r"\bhave i (?:ever|done|used|tried)\b",
+        r"\blast time\b",
+        r"\bpreviously\b",
+        r"\bin the past\b",
         r"\bwhat if\b",
         r"\bis it worth\b",
         r"\bany thoughts\b",

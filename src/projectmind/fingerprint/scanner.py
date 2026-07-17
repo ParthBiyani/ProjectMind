@@ -262,11 +262,24 @@ class ProjectScanner:
 
     @staticmethod
     def _read_readme(root: Path) -> str | None:
+        """Find the README whatever it is capitalised as.
+
+        Guessing spellings does not work. The previous version tried
+        `readme.md` and then `README.MD`, which finds `README.md` on Windows
+        only because the filesystem is case-insensitive and finds nothing at
+        all on Linux or macOS — so domain hints silently never worked there.
+        Caught by CI on ubuntu, which is exactly what the matrix is for.
+        Listing the directory once and matching lowercased is both correct and
+        cheaper than four stat calls.
+        """
+        try:
+            entries = {entry.name.lower(): entry for entry in root.iterdir() if entry.is_file()}
+        except OSError:
+            return None
+
         for name in README_NAMES:
-            candidate = root / name
-            if not candidate.exists():
-                candidate = root / name.upper()
-            if candidate.is_file():
+            candidate = entries.get(name)
+            if candidate is not None:
                 try:
                     return candidate.read_text(encoding="utf-8", errors="replace")[:README_CHARS]
                 except OSError:
