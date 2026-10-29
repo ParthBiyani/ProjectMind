@@ -14,14 +14,21 @@ from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from pathlib import Path
 from uuid import uuid4
 
 from projectmind.logging import get_logger
-from projectmind.sources import chunking, office
+from projectmind.sources import chunking, office, transcripts
 from projectmind.sources.config import RootConfig
 from projectmind.sources.models import SourceChunk
 from projectmind.sources.secrets import contains_secret
-from projectmind.sources.walker import LOG_TAIL_BYTES, Candidate, ProjectResolver, walk
+from projectmind.sources.walker import (
+    LOG_TAIL_BYTES,
+    Candidate,
+    ProjectResolver,
+    project_key_for_directory,
+    walk,
+)
 from projectmind.storage import ChunkRecord, DocumentRecord, Store
 
 log = get_logger(__name__)
@@ -103,7 +110,8 @@ class KnowledgeIndexer:
         resolver = ProjectResolver(root)
         seen: set[str] = set()
 
-        for candidate in walk(root.path):
+        found = transcripts.candidates(root.path) if root.kind == "transcripts" else walk(root.path)
+        for candidate in found:
             report.seen += 1
             uri = candidate.path.as_posix()
             seen.add(uri)
@@ -140,7 +148,7 @@ class KnowledgeIndexer:
         resolver: ProjectResolver,
         report: ScanReport,
     ) -> None:
-        chunks, title = self._read(candidate)
+        chunks, title, working_dir = self._read(candidate)
         kept = [chunk for chunk in chunks if not contains_secret(f"{chunk.heading}\n{chunk.text}")]
         report.withheld += len(chunks) - len(kept)
         if not kept:
@@ -154,7 +162,11 @@ class KnowledgeIndexer:
             uri=uri,
             source_type=candidate.source_type,
             root=root.key,
-            project_key=resolver.key_for(candidate.path),
+            project_key=(
+                project_key_for_directory(Path(working_dir))
+                if working_dir
+                else resolver.key_for(candidate.path)
+            ),
             title=title or candidate.path.name,
             content_hash=current,
             mtime=datetime.fromtimestamp(candidate.mtime, UTC),
@@ -178,11 +190,14 @@ class KnowledgeIndexer:
         report.chunks += len(records)
         report.by_type[candidate.source_type] += 1
 
-    def _read(self, candidate: Candidate) -> tuple[list[SourceChunk], str]:
+    def _read(self, candidate: Candidate) -> tuple[list[SourceChunk], str, str | None]:
         kind = candidate.source_type
+        if kind == "transcript":
+            title, working_dir, session = transcripts.chunks_for(candidate.path)
+            return session, title, working_dir
         if kind in office.READERS:
             title, chunks = office.READERS[kind](candidate.path)
-            return chunks, title
+            return chunks, title, None
         text = _read_text(candidate)
         if kind == "doc":
             suffix = candidate.path.suffix.lower()
@@ -201,7 +216,7 @@ class KnowledgeIndexer:
             chunks = chunking.chunk_results_json(text)
         else:
             chunks = []
-        return chunks, _title_of(candidate, chunks)
+        return chunks, _title_of(candidate, chunks), None
 
 
 def scan_all(

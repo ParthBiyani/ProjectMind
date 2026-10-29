@@ -131,6 +131,25 @@ def walk(root: Path) -> Iterator[Candidate]:
                 yield candidate
 
 
+def project_key_for_directory(directory: Path) -> str:
+    """The project a working directory belongs to, as git ingestion would name it.
+
+    The nearest enclosing git repository gives its remote-based key, so a
+    session recorded in a repository and the commits of that repository are one
+    project. Otherwise the folder's own name.
+    """
+    from projectmind.service import slugify
+
+    current = directory
+    for _ in range(12):
+        if (current / ".git").exists():
+            return ProjectResolver._repo_key(current)
+        if current.parent == current:
+            break
+        current = current.parent
+    return slugify(directory.name)
+
+
 class ProjectResolver:
     """Which project a file belongs to.
 

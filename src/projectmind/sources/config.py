@@ -14,7 +14,7 @@ from pathlib import Path
 import yaml
 
 FILENAME = "sources.yaml"
-KINDS = ("project", "competition", "work", "learning", "career")
+KINDS = ("project", "competition", "work", "learning", "career", "transcripts")
 
 
 @dataclass(frozen=True, slots=True)
