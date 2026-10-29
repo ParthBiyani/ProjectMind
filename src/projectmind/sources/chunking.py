@@ -11,6 +11,7 @@ from __future__ import annotations
 import ast
 import json
 import re
+import warnings
 from collections.abc import Iterator
 from typing import Any
 
@@ -186,7 +187,11 @@ def chunk_python(text: str) -> list[SourceChunk]:
     header = "\n".join(lines[:header_end]).strip()
 
     try:
-        tree = ast.parse(text)
+        with warnings.catch_warnings():
+            # Old scripts are full of invalid escape sequences; that is the
+            # script's business and not worth a warning on every scan.
+            warnings.simplefilter("ignore")
+            tree = ast.parse(text)
     except (SyntaxError, ValueError):
         return chunk_text("\n".join(lines[: max(header_end, 40)]))[:MAX_CHUNKS_PER_CODE_FILE]
 

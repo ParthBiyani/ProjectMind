@@ -15,6 +15,7 @@ from projectmind.cli._common import console, fail, note, ok, service, table
 from projectmind.config import get_settings
 from projectmind.sources.config import KINDS, RootConfig, SourcesConfig
 from projectmind.sources.indexer import DEFAULT_MIN_AGE_SECONDS, KnowledgeIndexer, ScanReport
+from projectmind.sources.priority import lower_priority
 
 app = typer.Typer(help="Choose and read knowledge sources.", no_args_is_help=True)
 
@@ -116,7 +117,11 @@ def scan(
         help="Leave files modified within this many seconds; they are probably being edited.",
     ),
 ) -> None:
-    """Read every source folder: new and changed files in, deleted files out."""
+    """Read every source folder: new and changed files in, deleted files out.
+
+    Runs at below-normal priority so it stays out of the way of your editor.
+    """
+    lower_priority()
     config, _ = _roots_or_exit()
     roots = config.roots
     if path is not None:

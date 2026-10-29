@@ -155,7 +155,9 @@ def _git(root: Path, *args: str) -> tuple[int, str, str]:
 def _run(root: Path, *args: str) -> str | None:
     code, stdout, stderr = _git(root, *args)
     if code != 0:
-        log.warning(
+        # Expected for plenty of healthy repositories (no remote, no commits yet),
+        # so this is not a warning; callers that care inspect the result.
+        log.debug(
             "git returned non-zero",
             extra={"root": str(root), "git_args": list(args), "stderr": stderr.strip()[:200]},
         )
