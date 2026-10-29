@@ -13,6 +13,7 @@ tested without a database.
 from __future__ import annotations
 
 import json
+import re
 from abc import ABC, abstractmethod
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
@@ -110,6 +111,8 @@ class BundleLogEntry:
     embedder: str | None = None
     version: str | None = None
     delivered: bool | None = None
+    evidence_ids: tuple[UUID, ...] = ()
+    evidence_tokens: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -162,15 +165,16 @@ class ChunkHit:
 def search_terms(terms: Iterable[str]) -> list[str]:
     """Terms reduced to what both full-text engines index: lowercase alphanumerics.
 
-    Everything else in a prompt (punctuation, operators, quotes) is dropped here,
-    which is also what keeps a user-supplied string from being parsed as query
+    Anything else splits a term the way the index splits it (`walk-forward` is
+    `walk` and `forward`), and punctuation, operators and quotes are dropped.
+    That is also what keeps a user-supplied string from being parsed as query
     syntax by the database.
     """
     seen: dict[str, None] = {}
     for term in terms:
-        cleaned = "".join(ch for ch in term.lower() if ch.isalnum())
-        if len(cleaned) >= 2:
-            seen[cleaned] = None
+        for piece in re.split(r"[^0-9a-z]+", term.lower()):
+            if len(piece) >= 2:
+                seen[piece] = None
     return list(seen)
 
 
@@ -541,6 +545,10 @@ class Store(ABC):
 
     @abstractmethod
     def get_chunk(self, chunk_id: UUID) -> ChunkHit | None: ...
+
+    @abstractmethod
+    def document_projects(self) -> list[str]:
+        """Every project key that has at least one document."""
 
     @abstractmethod
     def count_chunks(self) -> int: ...

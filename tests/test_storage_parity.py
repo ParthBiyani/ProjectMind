@@ -135,8 +135,8 @@ def make_statement(**overrides: object) -> ProfileStatement:
 
 class TestMigrations:
     def test_migrate_is_idempotent(self, store: Store) -> None:
-        assert store.migrate() == 3
-        assert store.migrate() == 3
+        assert store.migrate() == 4
+        assert store.migrate() == 4
 
 
 class TestProjects:
@@ -599,7 +599,8 @@ class TestKnowledgeBase:
 
     def test_search_term_cleaning_drops_syntax_and_short_noise(self) -> None:
         assert search_terms(['"Walk-forward"', "a", "AND*", "dice,"]) == [
-            "walkforward",
+            "walk",
+            "forward",
             "and",
             "dice",
         ]

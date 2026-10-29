@@ -13,6 +13,7 @@ version control and does not write anywhere.
 from __future__ import annotations
 
 import os
+from collections import Counter
 from collections.abc import Iterator
 from dataclasses import dataclass
 from fnmatch import fnmatch
@@ -29,6 +30,9 @@ SKIP_DIRS = frozenset(
         "dataset", "datasets", "data", "images", "imgs", "frames", "wandb", "lightning_logs",
         "checkpoints", "weights", "tmp", "temp", ".dart_tool", "pods", "intermediates",
         "$recycle.bin", "system volume information",
+        # Agent configuration: skills and commands copied from elsewhere, not the
+        # user's own notes. A project's CLAUDE.md at its root is still read.
+        ".claude", ".codex", ".cursor", ".agents", ".gemini", ".continue",
     }
 )  # fmt: skip
 
@@ -55,6 +59,9 @@ MAX_BYTES = {
     "doc": 2_000_000, "code": 1_000_000, "notebook": 15_000_000, "log": 200_000_000,
     "results": 200_000, "pdf": 30_000_000, "docx": 20_000_000, "pptx": 30_000_000,
 }  # fmt: skip
+
+#: More files of one type than this in a single folder means a data dump.
+FLOOD_LIMIT = 150
 
 #: Logs can be huge and the result is usually at the end: only this much is read.
 LOG_TAIL_BYTES = 1_000_000
@@ -83,7 +90,13 @@ def classify(path: Path, size: int) -> str | None:
 
 
 def walk(root: Path) -> Iterator[Candidate]:
-    """Every readable candidate under `root`, without entering skipped folders."""
+    """Every readable candidate under `root`, without entering skipped folders.
+
+    A folder holding hundreds of files of one type is a data dump (a YOLO label
+    folder, an export of per-item records), not writing. Those files are skipped
+    as a group: indexing fifty thousand annotation files would bury everything a
+    person actually wrote.
+    """
     stack = [root]
     while stack:
         directory = stack.pop()
@@ -91,6 +104,8 @@ def walk(root: Path) -> Iterator[Candidate]:
             entries = list(os.scandir(directory))
         except OSError:
             continue
+
+        candidates: list[Candidate] = []
         for entry in entries:
             try:
                 if entry.is_dir(follow_symlinks=False):
@@ -101,11 +116,19 @@ def walk(root: Path) -> Iterator[Candidate]:
                     path = Path(entry.path)
                     source_type = classify(path, stat.st_size)
                     if source_type:
-                        yield Candidate(
-                            path, source_type, stat.st_size, stat.st_mtime, stat.st_mtime_ns
+                        candidates.append(
+                            Candidate(
+                                path, source_type, stat.st_size, stat.st_mtime, stat.st_mtime_ns
+                            )
                         )
             except OSError:
                 continue
+
+        by_suffix = Counter(candidate.path.suffix.lower() for candidate in candidates)
+        flooded = {suffix for suffix, count in by_suffix.items() if count > FLOOD_LIMIT}
+        for candidate in candidates:
+            if candidate.path.suffix.lower() not in flooded:
+                yield candidate
 
 
 class ProjectResolver:

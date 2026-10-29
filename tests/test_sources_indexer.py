@@ -86,6 +86,21 @@ class TestWalker:
         assert classify(loose, loose.stat().st_size) is None
         assert classify(inside, inside.stat().st_size) == "results"
 
+    def test_a_folder_flooded_with_one_file_type_is_a_data_dump(self, tmp_path: Path) -> None:
+        labels = tmp_path / "yolo" / "labels"
+        labels.mkdir(parents=True)
+        for index in range(200):
+            (labels / f"img_{index}.txt").write_text("0 0.5 0.5 0.2 0.2\n", encoding="utf-8")
+        (tmp_path / "yolo" / "README.md").write_text("# YOLO export\n", encoding="utf-8")
+        names = {candidate.path.name for candidate in walk(tmp_path)}
+        assert "README.md" in names
+        assert not any(name.startswith("img_") for name in names)
+
+    def test_a_normal_folder_of_notes_is_not_a_data_dump(self, tmp_path: Path) -> None:
+        for index in range(40):
+            (tmp_path / f"note_{index}.md").write_text(f"# Note {index}\n", encoding="utf-8")
+        assert len(list(walk(tmp_path))) == 40
+
     def test_oversized_and_empty_files_are_skipped(self, tmp_path: Path) -> None:
         empty = write(tmp_path / "empty.md", "")
         assert classify(empty, 0) is None

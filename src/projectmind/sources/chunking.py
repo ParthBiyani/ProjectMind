@@ -225,12 +225,14 @@ def chunk_python(text: str) -> list[SourceChunk]:
         doc = ast.get_docstring(node)
         if not doc:
             continue
-        signature = lines[node.lineno - 1].strip()
         first = node.body[0]
         end = first.end_lineno or node.lineno
+        # The literal lines, definition through the end of the docstring, so the
+        # text is exactly what is at the cited span.
+        text_block = "\n".join(lines[node.lineno - 1 : end])
         chunks.append(
             SourceChunk(
-                text=f"{signature}\n{doc}"[: MAX_CHARS * 2],
+                text=text_block[: MAX_CHARS * 2],
                 heading=node.name,
                 start_line=node.lineno,
                 end_line=end,

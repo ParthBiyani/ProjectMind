@@ -2,7 +2,8 @@
 -- chunks they are split into. Every chunk keeps the line span or locator it came
 -- from, so anything served can be traced back to its exact place in a source.
 --
--- Chunks are indexed lexically (FTS5, BM25). Exact technical terms are the most
+-- Chunks are indexed lexically (FTS5, BM25, Porter stemming so that
+-- "returns" finds "return"). Exact technical terms are the most
 -- reliable signal in this material, and an index of exact terms is also what
 -- makes "this evidence really contains what you asked about" checkable.
 CREATE TABLE IF NOT EXISTS documents (
@@ -38,7 +39,7 @@ CREATE INDEX IF NOT EXISTS idx_chunks_document ON chunks (document_id, ordinal);
 CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts USING fts5 (
     heading, text,
     content = 'chunks', content_rowid = 'rowid',
-    tokenize = 'unicode61 remove_diacritics 2'
+    tokenize = 'porter unicode61 remove_diacritics 2'
 );
 
 CREATE TRIGGER IF NOT EXISTS chunks_ai AFTER INSERT ON chunks BEGIN

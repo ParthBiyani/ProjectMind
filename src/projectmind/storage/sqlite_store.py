@@ -499,6 +499,12 @@ class SqliteStore(Store):
         ).fetchone()
         return _hit_from_row(row) if row else None
 
+    def document_projects(self) -> list[str]:
+        rows = self._conn.execute(
+            "SELECT DISTINCT project_key FROM documents ORDER BY project_key"
+        ).fetchall()
+        return [row["project_key"] for row in rows]
+
     def count_chunks(self) -> int:
         return int(self._conn.execute("SELECT count(*) AS n FROM chunks").fetchone()["n"])
 
@@ -534,9 +540,9 @@ class SqliteStore(Store):
                 profile_ids, episodic_ids, cross_project_ids, profile_tokens, episodic_tokens,
                 gate_reason, latency_ms, injected, feedback, feedback_note,
                 source, session_id, cwd, prompt_text, rendered_text, trace,
-                embedder, version, delivered
+                embedder, version, delivered, evidence_ids, evidence_tokens
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                      ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                      ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 str(entry.bundle_id),
@@ -564,6 +570,8 @@ class SqliteStore(Store):
                 entry.embedder,
                 entry.version,
                 None if entry.delivered is None else int(entry.delivered),
+                dumps([str(value) for value in entry.evidence_ids]),
+                entry.evidence_tokens,
             ),
         )
         self._conn.commit()
@@ -689,6 +697,8 @@ def _bundle_from_row(row: Any) -> BundleLogEntry:
         embedder=row["embedder"],
         version=row["version"],
         delivered=None if row["delivered"] is None else bool(row["delivered"]),
+        evidence_ids=tuple(UUID(v) for v in loads(row["evidence_ids"], [])),
+        evidence_tokens=int(row["evidence_tokens"]),
     )
 
 

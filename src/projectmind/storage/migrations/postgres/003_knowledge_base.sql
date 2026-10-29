@@ -2,7 +2,8 @@
 -- chunks they are split into. Every chunk keeps the line span or locator it came
 -- from, so anything served can be traced back to its exact place in a source.
 --
--- Chunks are indexed lexically (tsvector). Exact technical terms are the most
+-- Chunks are indexed lexically (tsvector, English stemming so that
+-- "returns" finds "return"). Exact technical terms are the most
 -- reliable signal in this material, and an index of exact terms is also what
 -- makes "this evidence really contains what you asked about" checkable.
 CREATE TABLE IF NOT EXISTS documents (
@@ -32,7 +33,7 @@ CREATE TABLE IF NOT EXISTS chunks (
     end_line    INTEGER NOT NULL DEFAULT 0,
     locator     TEXT NOT NULL DEFAULT '',
     tsv         TSVECTOR GENERATED ALWAYS AS (
-        to_tsvector('simple', coalesce(heading, '') || ' ' || text)
+        to_tsvector('english', coalesce(heading, '') || ' ' || text)
     ) STORED
 );
 

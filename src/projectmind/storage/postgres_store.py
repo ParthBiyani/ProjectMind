@@ -493,7 +493,7 @@ class PostgresStore(Store):
                    c.end_line, c.locator, d.*, ts_rank_cd(c.tsv, q.query) AS score
             FROM chunks c
             JOIN documents d ON d.id = c.document_id,
-                 to_tsquery('simple', %s) AS q (query)
+                 to_tsquery('english', %s) AS q (query)
             WHERE {" AND ".join(clauses)}
             ORDER BY score DESC
             LIMIT %s
@@ -506,7 +506,7 @@ class PostgresStore(Store):
         counts: dict[str, int] = {}
         for term in search_terms(terms):
             rows = self._query(
-                "SELECT count(*) AS n FROM chunks WHERE tsv @@ to_tsquery('simple', %s)", (term,)
+                "SELECT count(*) AS n FROM chunks WHERE tsv @@ to_tsquery('english', %s)", (term,)
             )
             counts[term] = int(rows[0]["n"])
         return counts
@@ -522,6 +522,10 @@ class PostgresStore(Store):
             (str(chunk_id),),
         )
         return _hit_from_row(rows[0]) if rows else None
+
+    def document_projects(self) -> list[str]:
+        rows = self._query("SELECT DISTINCT project_key FROM documents ORDER BY project_key")
+        return [row["project_key"] for row in rows]
 
     def count_chunks(self) -> int:
         return int(self._query("SELECT count(*) AS n FROM chunks")[0]["n"])
@@ -556,11 +560,11 @@ class PostgresStore(Store):
                 profile_ids, episodic_ids, cross_project_ids, profile_tokens, episodic_tokens,
                 gate_reason, latency_ms, injected, feedback, feedback_note,
                 source, session_id, cwd, prompt_text, rendered_text, trace,
-                embedder, version, delivered
+                embedder, version, delivered, evidence_ids, evidence_tokens
             ) VALUES (
                 %s::uuid, %s, %s, %s, %s, %s, %s::jsonb, %s::jsonb, %s::jsonb,
                 %s, %s, %s, %s, %s, %s, %s,
-                %s, %s, %s, %s, %s, %s::jsonb, %s, %s, %s
+                %s, %s, %s, %s, %s, %s::jsonb, %s, %s, %s, %s::jsonb, %s
             )
             ON CONFLICT (bundle_id) DO UPDATE SET
                 feedback = EXCLUDED.feedback, feedback_note = EXCLUDED.feedback_note
@@ -591,6 +595,8 @@ class PostgresStore(Store):
                 entry.embedder,
                 entry.version,
                 entry.delivered,
+                dumps([str(value) for value in entry.evidence_ids]),
+                entry.evidence_tokens,
             ),
         )
 
@@ -710,6 +716,8 @@ def _bundle_from_row(row: dict[str, Any]) -> BundleLogEntry:
         embedder=row["embedder"],
         version=row["version"],
         delivered=row["delivered"],
+        evidence_ids=tuple(UUID(v) for v in loads(row["evidence_ids"], [])),
+        evidence_tokens=int(row["evidence_tokens"]),
     )
 
 

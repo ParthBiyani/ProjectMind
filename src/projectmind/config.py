@@ -45,6 +45,19 @@ class Settings(BaseSettings):
     max_profile_statements: int = 15
     max_episodic_records: int = 5
 
+    # --- evidence from the user's own files and notes ------------------------
+    evidence_token_cap: int = Field(
+        default=1_200, description="Most tokens of source excerpts served in one bundle."
+    )
+    max_evidence: int = 4
+    evidence_coverage_floor: float = Field(
+        default=0.6,
+        description=(
+            "A source excerpt is served only if it contains at least this share of the "
+            "question's distinctive terms (weighted by how rare each term is)."
+        ),
+    )
+
     # --- confidence bars, from PRD section 2 -------------------------------
     profile_activation_confidence: float = 0.85
     episodic_serve_confidence: float = 0.60
