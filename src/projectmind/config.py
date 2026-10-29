@@ -9,6 +9,7 @@ network calls.
 from __future__ import annotations
 
 import functools
+import os
 from pathlib import Path
 from typing import Literal
 
@@ -23,7 +24,6 @@ class Settings(BaseSettings):
 
     model_config = SettingsConfigDict(
         env_prefix="PROJECTMIND_",
-        env_file=".env",
         env_file_encoding="utf-8",
         extra="ignore",
     )
@@ -156,10 +156,23 @@ class Settings(BaseSettings):
         return "postgres+pgvector" if self.uses_postgres else f"sqlite ({self.sqlite_path})"
 
 
+def env_file() -> Path:
+    """The one `.env` ProjectMind reads: the one in its own home.
+
+    Never the working directory's. A hook and an MCP server run with whatever
+    project the user happens to be in as their cwd, so reading `.env` from there
+    would let any repository's `.env` redirect the database or switch settings,
+    and would make the same installation behave differently per project.
+    """
+    home = os.environ.get("PROJECTMIND_HOME")
+    return (Path(home).expanduser() if home else DEFAULT_HOME) / ".env"
+
+
 @functools.lru_cache(maxsize=1)
 def get_settings() -> Settings:
     """Process-wide settings. Cached; call :func:`reset_settings` in tests."""
-    return Settings()
+    # `_env_file` is a pydantic-settings init option that the static signature hides.
+    return Settings(_env_file=env_file())  # type: ignore[call-arg]
 
 
 def reset_settings() -> None:

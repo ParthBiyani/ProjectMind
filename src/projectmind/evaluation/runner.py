@@ -11,8 +11,6 @@ from projectmind.evaluation.fixtures import FixtureCorpus
 from projectmind.evaluation.scoring import ScoreReport, score_run
 from projectmind.evaluation.spec import EvalQuery, EvalSet, RetrievalResult, SystemUnderTest
 
-BASELINE_DIR = Path(__file__).resolve().parents[3] / "eval" / "baselines"
-
 
 def run(
     eval_set: EvalSet,

@@ -10,13 +10,12 @@ import typer
 from projectmind.cli._common import console, fail, note, ok, table
 from projectmind.evaluation import EvalSet, NullSystem
 from projectmind.evaluation.live import LiveSystem, live_service
+from projectmind.evaluation.paths import eval_dir
 from projectmind.evaluation.runner import OracleSystem, load, run, save
 from projectmind.evaluation.scoring import compare as compare_reports
 
 app = typer.Typer(help="Run the offline evaluation.", no_args_is_help=True)
 
-REPO_ROOT = Path(__file__).resolve().parents[3]
-DEFAULT_QUERIES = REPO_ROOT / "eval" / "queries.yaml"
 
 SYSTEMS = ("live", "null", "oracle")
 
@@ -24,7 +23,9 @@ SYSTEMS = ("live", "null", "oracle")
 @app.command("run")
 def run_eval(
     system: str = typer.Option("live", help=f"One of {', '.join(SYSTEMS)}."),
-    queries: Path = typer.Option(DEFAULT_QUERIES, help="Query set to score against."),
+    queries: Path | None = typer.Option(
+        None, help="Query set to score against. Defaults to the repository's eval/queries.yaml."
+    ),
     save_to: Path | None = typer.Option(None, "--save", help="Write the report as JSON."),
     verbose: bool = typer.Option(False, "--verbose", help="Show every query that missed."),
 ) -> None:
@@ -33,6 +34,11 @@ def run_eval(
         fail(f"unknown system {system!r}; expected one of {', '.join(SYSTEMS)}")
         raise typer.Exit(code=1)
 
+    try:
+        queries = queries or eval_dir() / "queries.yaml"
+    except FileNotFoundError as exc:
+        fail(str(exc))
+        raise typer.Exit(code=1) from exc
     eval_set = EvalSet.from_yaml(queries)
 
     if system == "null":
