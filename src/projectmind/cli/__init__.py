@@ -16,6 +16,7 @@ import typer
 
 from projectmind import __version__
 from projectmind.cli import (
+    daemon_cmd,
     eval_cmd,
     fingerprint_cmd,
     history_cmd,
@@ -24,6 +25,7 @@ from projectmind.cli import (
     install_cmd,
     profile_cmd,
     review_cmd,
+    schedule_cmd,
     sources_cmd,
 )
 from projectmind.cli._common import console, fail, note, ok, percent, service, table
@@ -46,6 +48,9 @@ app.add_typer(eval_cmd.app, name="eval")
 app.add_typer(ingest_cmd.app, name="ingest")
 app.add_typer(review_cmd.app, name="review")
 app.add_typer(sources_cmd.app, name="sources")
+app.add_typer(daemon_cmd.app, name="daemon")
+app.add_typer(schedule_cmd.app, name="schedule")
+app.command("serve")(daemon_cmd.serve)
 
 
 @app.callback(invoke_without_command=True)

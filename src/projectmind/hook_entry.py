@@ -1,14 +1,22 @@
 """Slim entry point for coding-agent hooks.
 
 A hook runs before every prompt, so its cost is paid hundreds of times a day.
-Going through the full Typer CLI imports evaluation, ingestion and reflection
-code that a hook never touches. This module imports only the service, and is
-what the installer points `UserPromptSubmit` and `SessionStart` at:
+This module imports only the standard library at the top level. The installed
+hook command is:
 
     python -I -m projectmind.hook_entry user-prompt-submit
 
-Rules, because a misbehaving hook breaks the user's editor rather than this
-tool:
+and it works in two tiers:
+
+1. **Fast path.** If the ProjectMind daemon is running it already has the
+   database open and the retrieval index warm, so the hook sends it the prompt
+   over localhost and prints the reply. A few milliseconds beyond interpreter
+   start-up.
+2. **In-process fallback.** If there is no daemon (or it does not answer in
+   time) the hook does the work itself: imports the service, opens the store,
+   retrieves. Slower, never wrong.
+
+Rules, because a misbehaving hook breaks the user's editor rather than this tool:
 
 1. **Never raise.** Every failure path exits 0 with empty output.
 2. **Bytes in, bytes out.** On Windows a piped stdout is the ANSI code page, so
@@ -20,21 +28,22 @@ tool:
 
 from __future__ import annotations
 
+import contextlib
+import http.client
 import json
+import os
 import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 from uuid import UUID
 
-from projectmind.logging import configure
-
-configure(console=False)
-
-from projectmind.config import get_settings  # noqa: E402
-from projectmind.logging import get_logger  # noqa: E402
-
-log = get_logger(__name__)
+#: How long the hook waits for the daemon before doing the work itself.
+DAEMON_TIMEOUT_SECONDS = 2.5
+DELIVERY_TIMEOUT_SECONDS = 0.8
+DAEMON_FILE = "daemon.json"
+BUNDLE_HEADER = "X-Projectmind-Bundle"
+NO_DAEMON_ENV = "PROJECTMIND_NO_DAEMON"
 
 
 def read_event(raw: bytes) -> dict[str, Any]:
@@ -45,7 +54,6 @@ def read_event(raw: bytes) -> dict[str, Any]:
     try:
         parsed = json.loads(text)
     except json.JSONDecodeError:
-        log.debug("hook payload was not json")
         return {}
     return parsed if isinstance(parsed, dict) else {}
 
@@ -68,13 +76,6 @@ def render_reply(context: str) -> bytes:
     return json.dumps(payload, ensure_ascii=True).encode("ascii")
 
 
-def user_prompt_submit(
-    event: dict[str, Any], *, prompt: str | None = None, project: Path | None = None
-) -> bytes:
-    """The reply bytes for one prompt. Empty when there is nothing to inject."""
-    return prepare_reply(event, prompt=prompt, project=project).payload
-
-
 @dataclass(frozen=True, slots=True)
 class Reply:
     """What the hook will write, and which logged bundle it belongs to."""
@@ -83,9 +84,104 @@ class Reply:
     bundle_id: UUID | None = None
 
 
+# --------------------------------------------------------------------------- #
+# Tier 1: the daemon
+# --------------------------------------------------------------------------- #
+
+
+def _home() -> Path:
+    configured = os.environ.get("PROJECTMIND_HOME")
+    return Path(configured).expanduser() if configured else Path.home() / ".projectmind"
+
+
+def daemon_info(home: Path | None = None) -> dict[str, Any] | None:
+    """Where the daemon is listening, or None if it has not announced itself."""
+    try:
+        info = json.loads(((home or _home()) / DAEMON_FILE).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    if isinstance(info, dict) and info.get("port") and info.get("token"):
+        return info
+    return None
+
+
+def _post(
+    info: dict[str, Any], path: str, body: bytes, timeout: float
+) -> tuple[int, bytes, dict[str, str]]:
+    connection = http.client.HTTPConnection("127.0.0.1", int(info["port"]), timeout=timeout)
+    try:
+        connection.request(
+            "POST",
+            path,
+            body=body,
+            headers={
+                "Authorization": f"Bearer {info['token']}",
+                "Content-Type": "application/json",
+            },
+        )
+        response = connection.getresponse()
+        data = response.read()
+        return response.status, data, {key: value for key, value in response.getheaders()}
+    finally:
+        connection.close()
+
+
+def ask_daemon(raw: bytes) -> Reply | None:
+    """The reply from a running daemon, or None to fall back to doing it ourselves."""
+    if os.environ.get(NO_DAEMON_ENV):
+        return None
+    info = daemon_info()
+    if info is None:
+        return None
+    try:
+        status, body, headers = _post(info, "/context", raw, DAEMON_TIMEOUT_SECONDS)
+    except (OSError, http.client.HTTPException):
+        return None
+    if status == 204:
+        return Reply()
+    if status != 200:
+        return None
+    identifier = headers.get(BUNDLE_HEADER) or headers.get(BUNDLE_HEADER.lower())
+    try:
+        bundle_id = UUID(identifier) if identifier else None
+    except ValueError:
+        bundle_id = None
+    return Reply(payload=body, bundle_id=bundle_id)
+
+
+def confirm_with_daemon(bundle_id: UUID, delivered: bool) -> bool:
+    info = daemon_info()
+    if info is None:
+        return False
+    body = json.dumps({"bundle_id": str(bundle_id), "delivered": delivered}).encode("utf-8")
+    try:
+        status, _, _ = _post(info, "/delivered", body, DELIVERY_TIMEOUT_SECONDS)
+    except (OSError, http.client.HTTPException):
+        return False
+    return status == 200
+
+
+# --------------------------------------------------------------------------- #
+# Tier 2: in-process
+# --------------------------------------------------------------------------- #
+
+
+def _quiet_logging() -> Any:
+    from projectmind.logging import configure, get_logger
+
+    configure(console=False)
+    return get_logger("projectmind.hook")
+
+
 def prepare_reply(
-    event: dict[str, Any], *, prompt: str | None = None, project: Path | None = None
+    event: dict[str, Any],
+    *,
+    prompt: str | None = None,
+    project: Path | None = None,
+    memory: Any = None,
 ) -> Reply:
+    """Build the reply for one prompt, using `memory` if given or opening our own."""
+    log = _quiet_logging()
     text = prompt or str(event.get("prompt") or "")
     if not text.strip():
         return Reply()
@@ -93,9 +189,15 @@ def prepare_reply(
     session = event.get("session_id")
 
     try:
-        from projectmind.service import MemoryService
+        if memory is None:
+            from projectmind.config import get_settings
+            from projectmind.service import MemoryService
 
-        with MemoryService.open(get_settings()) as memory:
+            with MemoryService.open(get_settings()) as owned:
+                bundle = owned.get_context(
+                    text, cwd, source="hook", session_id=str(session) if session else None
+                )
+        else:
             bundle = memory.get_context(
                 text, cwd, source="hook", session_id=str(session) if session else None
             )
@@ -118,15 +220,27 @@ def prepare_reply(
             "tokens": bundle.total_tokens,
             "profile": len(bundle.profile),
             "episodic": len(bundle.episodic),
+            "evidence": len(bundle.evidence),
         },
     )
     payload = render_reply(f"{bundle.render()}\n\n{bundle_marker(bundle.bundle_id)}")
     return Reply(payload=payload, bundle_id=bundle.bundle_id)
 
 
+def user_prompt_submit(
+    event: dict[str, Any], *, prompt: str | None = None, project: Path | None = None
+) -> bytes:
+    """The reply bytes for one prompt. Empty when there is nothing to inject."""
+    return prepare_reply(event, prompt=prompt, project=project).payload
+
+
 def confirm_delivery(bundle_id: UUID, delivered: bool) -> None:
     """Record that the written reply did (or did not) reach the agent."""
+    if confirm_with_daemon(bundle_id, delivered):
+        return
+    log = _quiet_logging()
     try:
+        from projectmind.config import get_settings
         from projectmind.service import MemoryService
 
         with MemoryService.open(get_settings()) as memory:
@@ -137,8 +251,10 @@ def confirm_delivery(bundle_id: UUID, delivered: bool) -> None:
 
 def session_start(event: dict[str, Any], *, project: Path | None = None) -> None:
     """Warm the fingerprint cache for a project. Prints nothing."""
+    log = _quiet_logging()
     cwd = project or Path(str(event.get("cwd") or Path.cwd()))
     try:
+        from projectmind.config import get_settings
         from projectmind.service import MemoryService
 
         with MemoryService.open(get_settings()) as memory:
@@ -148,6 +264,11 @@ def session_start(event: dict[str, Any], *, project: Path | None = None) -> None
         log.warning("session-start warm-up failed", extra={"error": str(exc)})
 
 
+# --------------------------------------------------------------------------- #
+# Entry point
+# --------------------------------------------------------------------------- #
+
+
 def main(argv: list[str] | None = None) -> int:
     args = sys.argv[1:] if argv is None else argv
     command = args[0] if args else ""
@@ -155,11 +276,12 @@ def main(argv: list[str] | None = None) -> int:
         raw = sys.stdin.buffer.read() if not sys.stdin.isatty() else b""
     except (OSError, ValueError):
         raw = b""
-    event = read_event(raw)
 
     try:
         if command == "user-prompt-submit":
-            reply = prepare_reply(event)
+            reply = ask_daemon(raw)
+            if reply is None:
+                reply = prepare_reply(read_event(raw))
             if reply.payload:
                 delivered = False
                 try:
@@ -170,9 +292,10 @@ def main(argv: list[str] | None = None) -> int:
                     if reply.bundle_id is not None:
                         confirm_delivery(reply.bundle_id, delivered)
         elif command == "session-start":
-            session_start(event)
+            session_start(read_event(raw))
     except Exception as exc:  # last line of defence: the editor must never see this
-        log.warning("hook crashed, serving nothing", extra={"error": str(exc)})
+        with contextlib.suppress(Exception):
+            _quiet_logging().warning("hook crashed, serving nothing", extra={"error": str(exc)})
     return 0
 
 

@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "projectmind"
-version = "0.1.0"
+version = "0.2.0"
 description = "A cross-project engineering memory layer for coding agents."
 readme = "README.md"
 license = { file = "LICENSE" }
@@ -76,6 +76,10 @@ src = ["src", "tests"]
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "UP", "B", "SIM", "RUF"]
 ignore = ["B008"]
+
+[tool.ruff.lint.per-file-ignores]
+# The package init re-exports lazily; the imports exist for type checkers.
+"src/projectmind/__init__.py" = ["F401"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["projectmind"]

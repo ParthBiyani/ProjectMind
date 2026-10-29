@@ -239,3 +239,32 @@ class TestFrontDoor:
         assert entry.evidence_ids == tuple(item.chunk_id for item in bundle.evidence)
         assert entry.evidence_tokens == bundle.evidence_tokens
         assert any(row.get("stage") == "evidence" for row in entry.trace["evidence"])
+
+
+class TestSmallCorpus:
+    """A new user's first week: a handful of passages, not tens of thousands."""
+
+    def test_a_specific_question_is_answered_even_when_one_word_is_absent(
+        self, tmp_path: Path
+    ) -> None:
+        root = tmp_path / "r"
+        write(
+            root / "p" / "NOTES.md",
+            "# Alpha\n\n## Indicators\n\nThe ADX block returns di plus, di minus and adx.\n",
+        )
+        store = SqliteStore(":memory:")
+        store.migrate()
+        KnowledgeIndexer(store).scan_root(RootConfig(path=root, depth=1))
+        results = retriever(store).retrieve("How does the ADX block return its values?")
+        assert results
+        assert "adx" in results[0].excerpt.lower()
+        store.close()
+
+    def test_a_wholly_unknown_topic_is_still_silent(self, tmp_path: Path) -> None:
+        root = tmp_path / "r"
+        write(root / "p" / "NOTES.md", "# Alpha\n\nThe ADX block returns di plus and di minus.\n")
+        store = SqliteStore(":memory:")
+        store.migrate()
+        KnowledgeIndexer(store).scan_root(RootConfig(path=root, depth=1))
+        assert retriever(store).retrieve("Tune the kubernetes ingress certificate rotation") == []
+        store.close()

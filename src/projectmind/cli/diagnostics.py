@@ -207,7 +207,13 @@ def check_hook_runs(settings: Settings) -> Finding:
     payload = json.dumps(
         {"prompt": SELF_TEST_PROMPT, "cwd": tempfile.gettempdir(), "session_id": "doctor"}
     ).encode("utf-8")
-    env = {**os.environ, "PROJECTMIND_HOME": str(settings.home), "PROJECTMIND_HISTORY": "off"}
+    env = {
+        **os.environ,
+        "PROJECTMIND_HOME": str(settings.home),
+        "PROJECTMIND_HISTORY": "off",
+        # Test the hook's own path; the daemon is checked separately.
+        "PROJECTMIND_NO_DAEMON": "1",
+    }
     started = time.perf_counter()
     try:
         result = subprocess.run(
@@ -248,6 +254,36 @@ def check_hook_runs(settings: Settings) -> Finding:
     return Finding("hook self-test", Status.OK, f"{served}, {speed}")
 
 
+def check_daemon(settings: Settings) -> Finding:
+    """Is the daemon up, and does a hook get answered quickly through it?"""
+    from projectmind.hook_entry import daemon_info
+
+    info = daemon_info(settings.home)
+    if info is None:
+        return Finding(
+            "daemon",
+            Status.WARN,
+            "not running; hooks work but are slower. Start it with: projectmind serve "
+            "(or at logon: projectmind schedule install)",
+        )
+    import http.client
+
+    started = time.perf_counter()
+    try:
+        connection = http.client.HTTPConnection("127.0.0.1", int(info["port"]), timeout=3)
+        connection.request("GET", "/health")
+        response = connection.getresponse()
+        response.read()
+        connection.close()
+    except (OSError, http.client.HTTPException) as exc:
+        return Finding("daemon", Status.WARN, f"announced on port {info['port']} but silent: {exc}")
+    if response.status != 200:
+        return Finding("daemon", Status.WARN, f"answered {response.status}")
+    return Finding(
+        "daemon", Status.OK, f"port {info['port']}, {(time.perf_counter() - started) * 1000:.0f} ms"
+    )
+
+
 def run_all(settings: Settings) -> list[Finding]:
     findings = [check_home(settings), *check_storage(settings)]
     findings += [
@@ -258,5 +294,6 @@ def run_all(settings: Settings) -> list[Finding]:
         *check_hooks(),
         check_mcp_registration(),
         check_hook_runs(settings),
+        check_daemon(settings),
     ]
     return findings

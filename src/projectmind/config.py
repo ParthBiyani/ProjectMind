@@ -123,6 +123,14 @@ class Settings(BaseSettings):
 
     log_level: str = "INFO"
 
+    daemon_port: int = Field(
+        default=0, description="Port for the local daemon. 0 picks a free one each start."
+    )
+    daemon_sync_minutes: float = Field(
+        default=30.0,
+        description="Minutes between the daemon's background syncs. 0 turns the scheduler off.",
+    )
+
     history: Literal["full", "minimal", "off"] = Field(
         default="full",
         description=(

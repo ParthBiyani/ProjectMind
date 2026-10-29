@@ -255,6 +255,8 @@ COMMON_MIN_CORPUS = 200
 SAME_PROJECT_BOOST = 1.15
 #: The question names the project the passage belongs to ("the prostate MRI task").
 NAMED_PROJECT_BOOST = 1.3
+#: An absent term weighs at most this many times a term seen once.
+MISSING_TERM_CAP = 1.25
 #: Two passages sharing this much of their vocabulary are the same passage.
 NEAR_DUPLICATE = 0.75
 
@@ -422,7 +424,13 @@ class EvidenceRetriever:
             seen_in = frequency.get(term, 0)
             if total >= COMMON_MIN_CORPUS and seen_in / total > COMMON_SHARE:
                 continue
-            weights[term] = idf(total, seen_in)
+            weight = idf(total, seen_in)
+            if seen_in == 0:
+                # A term the corpus has never seen counts against every passage,
+                # but not unboundedly: in a small corpus an absent word would
+                # otherwise outweigh everything that is actually there.
+                weight = min(weight, MISSING_TERM_CAP * idf(total, 1))
+            weights[term] = weight
         return weights
 
     def _named_projects(self, terms: Sequence[str]) -> frozenset[str]:
