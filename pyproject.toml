@@ -40,8 +40,13 @@ mcp = [
 reflection = [
   "langgraph>=0.2",
 ]
+docs = [
+  "pypdf>=4.0",
+  "python-docx>=1.1",
+  "python-pptx>=1.0",
+]
 dev = [
-  "projectmind[mcp,postgres,reflection]",
+  "projectmind[mcp,postgres,reflection,docs]",
   "mypy>=1.10",
   "pytest>=8.2",
   "pytest-cov>=5.0",
@@ -76,7 +81,7 @@ ignore = ["B008"]
 known-first-party = ["projectmind"]
 
 [[tool.mypy.overrides]]
-module = ["fastembed.*"]
+module = ["fastembed.*", "pypdf.*", "docx.*", "pptx.*"]
 ignore_missing_imports = true
 
 [tool.mypy]

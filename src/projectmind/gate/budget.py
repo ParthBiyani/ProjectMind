@@ -20,7 +20,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 
 from projectmind.config import Settings, get_settings
-from projectmind.models import ServedRecord, ServedStatement
+from projectmind.models import ServedEvidence, ServedRecord, ServedStatement
 from projectmind.tokens import estimate_tokens
 
 
@@ -45,6 +45,34 @@ def record_cost(record: ServedRecord) -> int:
 
 def statement_cost(statement: ServedStatement) -> int:
     return estimate_tokens(statement.render())
+
+
+@dataclass(frozen=True, slots=True)
+class EvidenceBudget:
+    kept: tuple[ServedEvidence, ...]
+    tokens: int
+    dropped: int = 0
+
+
+def fit_evidence(
+    items: Sequence[ServedEvidence], *, token_cap: int, max_items: int
+) -> EvidenceBudget:
+    """Take excerpts in ranked order until a cap is reached.
+
+    An excerpt that does not fit is skipped whole. A cut-off excerpt would still
+    carry a citation that claims more than is shown.
+    """
+    kept: list[ServedEvidence] = []
+    used = 0
+    dropped = 0
+    for item in items:
+        cost = estimate_tokens(item.render())
+        if len(kept) >= max_items or used + cost > token_cap:
+            dropped += 1
+            continue
+        kept.append(item)
+        used += cost
+    return EvidenceBudget(tuple(kept), used, dropped)
 
 
 def fit_records(

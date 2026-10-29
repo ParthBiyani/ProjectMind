@@ -29,6 +29,9 @@ from projectmind.models import (
 )
 from projectmind.storage.base import (
     BundleLogEntry,
+    ChunkHit,
+    ChunkRecord,
+    DocumentRecord,
     HistoryFilter,
     RecordFilter,
     ScoredRecord,
@@ -45,6 +48,7 @@ from projectmind.storage.base import (
     record_to_row,
     review_from_row,
     review_to_row,
+    search_terms,
     statement_from_row,
     statement_to_row,
     to_iso,
@@ -380,6 +384,153 @@ class SqliteStore(Store):
         self._conn.execute("DELETE FROM fingerprint_cache WHERE project_key = ?", (project_key,))
         self._conn.commit()
 
+    # --- knowledge base ----------------------------------------------------
+    def get_document(self, uri: str) -> DocumentRecord | None:
+        row = self._conn.execute("SELECT * FROM documents WHERE uri = ?", (uri,)).fetchone()
+        return _document_from_row(row) if row else None
+
+    def replace_document(self, document: DocumentRecord, chunks: Sequence[ChunkRecord]) -> None:
+        with self._conn:
+            self._conn.execute("DELETE FROM documents WHERE uri = ?", (document.uri,))
+            self._conn.execute(
+                """
+                INSERT INTO documents (id, uri, source_type, root, project_key, title,
+                                       content_hash, mtime, indexed_at, chunk_count)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    str(document.id),
+                    document.uri,
+                    document.source_type,
+                    document.root,
+                    document.project_key,
+                    document.title,
+                    document.content_hash,
+                    to_iso(document.mtime),
+                    to_iso(document.indexed_at),
+                    len(chunks),
+                ),
+            )
+            self._conn.executemany(
+                """
+                INSERT INTO chunks (id, document_id, ordinal, heading, text,
+                                    start_line, end_line, locator)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                [
+                    (
+                        str(chunk.id),
+                        str(document.id),
+                        chunk.ordinal,
+                        chunk.heading,
+                        chunk.text,
+                        chunk.start_line,
+                        chunk.end_line,
+                        chunk.locator,
+                    )
+                    for chunk in chunks
+                ],
+            )
+
+    def delete_document(self, uri: str) -> bool:
+        with self._conn:
+            cursor = self._conn.execute("DELETE FROM documents WHERE uri = ?", (uri,))
+        return cursor.rowcount > 0
+
+    def document_hashes(self, root: str) -> dict[str, str]:
+        rows = self._conn.execute(
+            "SELECT uri, content_hash FROM documents WHERE root = ?", (root,)
+        ).fetchall()
+        return {row["uri"]: row["content_hash"] for row in rows}
+
+    def search_chunks(
+        self,
+        terms: Sequence[str],
+        *,
+        limit: int = 30,
+        project_key: str | None = None,
+        source_types: Sequence[str] = (),
+    ) -> list[ChunkHit]:
+        clean = search_terms(terms)
+        if not clean:
+            return []
+        clauses = ["chunks_fts MATCH ?"]
+        params: list[Any] = [" OR ".join(f'"{term}"' for term in clean)]
+        if project_key:
+            clauses.append("d.project_key = ?")
+            params.append(project_key)
+        if source_types:
+            clauses.append(f"d.source_type IN ({', '.join('?' for _ in source_types)})")
+            params.extend(source_types)
+        params.append(int(limit))
+        rows = self._conn.execute(
+            f"""
+            SELECT c.id AS c_id, c.document_id, c.ordinal, c.heading, c.text, c.start_line,
+                   c.end_line, c.locator, d.*, -bm25(chunks_fts, 3.0, 1.0) AS score
+            FROM chunks_fts
+            JOIN chunks c ON c.rowid = chunks_fts.rowid
+            JOIN documents d ON d.id = c.document_id
+            WHERE {" AND ".join(clauses)}
+            ORDER BY score DESC
+            LIMIT ?
+            """,
+            params,
+        ).fetchall()
+        return [_hit_from_row(row) for row in rows]
+
+    def term_document_frequency(self, terms: Sequence[str]) -> dict[str, int]:
+        counts: dict[str, int] = {}
+        for term in search_terms(terms):
+            row = self._conn.execute(
+                "SELECT count(*) AS n FROM chunks_fts WHERE chunks_fts MATCH ?", (f'"{term}"',)
+            ).fetchone()
+            counts[term] = int(row["n"])
+        return counts
+
+    def get_chunk(self, chunk_id: UUID) -> ChunkHit | None:
+        row = self._conn.execute(
+            """
+            SELECT c.id AS c_id, c.document_id, c.ordinal, c.heading, c.text, c.start_line,
+                   c.end_line, c.locator, d.*, 0.0 AS score
+            FROM chunks c JOIN documents d ON d.id = c.document_id
+            WHERE c.id = ?
+            """,
+            (str(chunk_id),),
+        ).fetchone()
+        return _hit_from_row(row) if row else None
+
+    def document_projects(self) -> list[str]:
+        rows = self._conn.execute(
+            "SELECT DISTINCT project_key FROM documents ORDER BY project_key"
+        ).fetchall()
+        return [row["project_key"] for row in rows]
+
+    def count_chunks(self) -> int:
+        return int(self._conn.execute("SELECT count(*) AS n FROM chunks").fetchone()["n"])
+
+    def count_documents(self, root: str | None = None) -> int:
+        if root is None:
+            row = self._conn.execute("SELECT count(*) AS n FROM documents").fetchone()
+        else:
+            row = self._conn.execute(
+                "SELECT count(*) AS n FROM documents WHERE root = ?", (root,)
+            ).fetchone()
+        return int(row["n"])
+
+    def list_documents(
+        self, *, limit: int = 100, source_type: str | None = None
+    ) -> list[DocumentRecord]:
+        if source_type:
+            rows = self._conn.execute(
+                "SELECT * FROM documents WHERE source_type = ? ORDER BY indexed_at DESC LIMIT ?",
+                (source_type, int(limit)),
+            ).fetchall()
+        else:
+            rows = self._conn.execute(
+                "SELECT * FROM documents ORDER BY indexed_at DESC LIMIT ?", (int(limit),)
+            ).fetchall()
+        return [_document_from_row(row) for row in rows]
+
     # --- telemetry ---------------------------------------------------------
     def log_bundle(self, entry: BundleLogEntry) -> None:
         self._conn.execute(
@@ -389,9 +540,9 @@ class SqliteStore(Store):
                 profile_ids, episodic_ids, cross_project_ids, profile_tokens, episodic_tokens,
                 gate_reason, latency_ms, injected, feedback, feedback_note,
                 source, session_id, cwd, prompt_text, rendered_text, trace,
-                embedder, version, delivered
+                embedder, version, delivered, evidence_ids, evidence_tokens
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                      ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                      ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 str(entry.bundle_id),
@@ -419,6 +570,8 @@ class SqliteStore(Store):
                 entry.embedder,
                 entry.version,
                 None if entry.delivered is None else int(entry.delivered),
+                dumps([str(value) for value in entry.evidence_ids]),
+                entry.evidence_tokens,
             ),
         )
         self._conn.commit()
@@ -487,6 +640,36 @@ class SqliteStore(Store):
         return aggregate_usage(_bundle_from_row(row) for row in rows)
 
 
+def _document_from_row(row: Any) -> DocumentRecord:
+    return DocumentRecord(
+        id=UUID(str(row["id"])),
+        uri=row["uri"],
+        source_type=row["source_type"],
+        root=row["root"],
+        project_key=row["project_key"],
+        title=row["title"] or "",
+        content_hash=row["content_hash"],
+        mtime=from_iso(row["mtime"]),
+        indexed_at=from_iso(row["indexed_at"]),
+        chunk_count=int(row["chunk_count"]),
+    )
+
+
+def _hit_from_row(row: Any) -> ChunkHit:
+    document = _document_from_row(row)
+    chunk = ChunkRecord(
+        id=UUID(str(row["c_id"])),
+        document_id=document.id,
+        ordinal=int(row["ordinal"]),
+        text=row["text"],
+        heading=row["heading"] or "",
+        start_line=int(row["start_line"]),
+        end_line=int(row["end_line"]),
+        locator=row["locator"] or "",
+    )
+    return ChunkHit(chunk=chunk, document=document, rank=float(row["score"]))
+
+
 def _bundle_from_row(row: Any) -> BundleLogEntry:
     return BundleLogEntry(
         bundle_id=UUID(str(row["bundle_id"])),
@@ -514,6 +697,8 @@ def _bundle_from_row(row: Any) -> BundleLogEntry:
         embedder=row["embedder"],
         version=row["version"],
         delivered=None if row["delivered"] is None else bool(row["delivered"]),
+        evidence_ids=tuple(UUID(v) for v in loads(row["evidence_ids"], [])),
+        evidence_tokens=int(row["evidence_tokens"]),
     )
 
 

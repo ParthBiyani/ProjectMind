@@ -34,15 +34,15 @@ def table(*columns: str, title: str | None = None) -> Table:
 
 
 def fail(message: str) -> None:
-    err_console.print(f"[red]error[/red] {message}")
+    err_console.print(f"[red]error[/red] {message}", soft_wrap=True)
 
 
 def note(message: str) -> None:
-    console.print(f"[dim]{message}[/dim]")
+    console.print(f"[dim]{message}[/dim]", soft_wrap=True)
 
 
 def ok(message: str) -> None:
-    console.print(f"[green]ok[/green] {message}")
+    console.print(f"[green]ok[/green] {message}", soft_wrap=True)
 
 
 def percent(value: float) -> str:

@@ -481,6 +481,36 @@ class ServedRecord(BaseModel):
         return "\n".join(lines)
 
 
+class ServedEvidence(BaseModel):
+    """A verbatim excerpt from one of the user's own sources, with its citation.
+
+    `excerpt` is copied from the source and never rewritten. `citation` names
+    the exact place it came from (`path:10-17`, `notebook.ipynb (cell 7)`), so
+    anyone can open the source and read the lines this was cut from.
+    """
+
+    model_config = {"frozen": True, "extra": "forbid"}
+
+    chunk_id: UUID
+    project_key: str
+    source_type: str
+    title: str
+    heading: str = ""
+    excerpt: str
+    citation: str
+    score: float = 0.0
+    matched: tuple[str, ...] = ()
+    cross_project: bool = False
+
+    def render(self) -> str:
+        label = self.heading or self.title
+        head = f"- **[{self.source_type}] {self.project_key}** — {label}"
+        quoted = "\n".join(
+            f"  > {line}" if line.strip() else "  >" for line in self.excerpt.splitlines()
+        )
+        return f"{head}\n  `{self.citation}`\n{quoted}"
+
+
 class ContextBundle(BaseModel):
     """The single thing `get_context` returns.
 
@@ -497,19 +527,21 @@ class ContextBundle(BaseModel):
     task_type: TaskType | None = None
     profile: tuple[ServedStatement, ...] = ()
     episodic: tuple[ServedRecord, ...] = ()
+    evidence: tuple[ServedEvidence, ...] = ()
     profile_tokens: int = 0
     episodic_tokens: int = 0
+    evidence_tokens: int = 0
     gate_reason: str = ""
     entities: tuple[str, ...] = ()
     latency_ms: float = 0.0
 
     @property
     def is_empty(self) -> bool:
-        return not (self.profile or self.episodic)
+        return not (self.profile or self.episodic or self.evidence)
 
     @property
     def total_tokens(self) -> int:
-        return self.profile_tokens + self.episodic_tokens
+        return self.profile_tokens + self.episodic_tokens + self.evidence_tokens
 
     @property
     def cross_project_count(self) -> int:
@@ -523,6 +555,9 @@ class ContextBundle(BaseModel):
         if self.profile:
             blocks.append("### How this developer works")
             blocks.extend(statement.render() for statement in self.profile)
+        if self.evidence:
+            blocks.append("### From your own files and notes")
+            blocks.extend(item.render() for item in self.evidence)
         if self.episodic:
             blocks.append("### Relevant history")
             blocks.extend(record.render() for record in self.episodic)

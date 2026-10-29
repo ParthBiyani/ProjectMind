@@ -13,6 +13,7 @@ tested without a database.
 from __future__ import annotations
 
 import json
+import re
 from abc import ABC, abstractmethod
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
@@ -110,6 +111,71 @@ class BundleLogEntry:
     embedder: str | None = None
     version: str | None = None
     delivered: bool | None = None
+    evidence_ids: tuple[UUID, ...] = ()
+    evidence_tokens: int = 0
+
+
+@dataclass(frozen=True, slots=True)
+class DocumentRecord:
+    """A file (or page) that has been read, and the fingerprint of what was read.
+
+    `content_hash` is how a rescan knows nothing changed; `uri` is the stable
+    identity of the source (a file path today, a URL for web pages).
+    """
+
+    id: UUID
+    uri: str
+    source_type: str
+    root: str
+    project_key: str
+    title: str
+    content_hash: str
+    mtime: datetime
+    indexed_at: datetime
+    chunk_count: int = 0
+
+
+@dataclass(frozen=True, slots=True)
+class ChunkRecord:
+    """A contiguous, citable slice of a document.
+
+    `start_line`/`end_line` are 1-based and inclusive where the source has lines;
+    `locator` carries the other kinds of place (`cell 7`, `page 3`, `slide 2`).
+    """
+
+    id: UUID
+    document_id: UUID
+    ordinal: int
+    text: str
+    heading: str = ""
+    start_line: int = 0
+    end_line: int = 0
+    locator: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class ChunkHit:
+    """A chunk returned by lexical search, with its document and raw rank."""
+
+    chunk: ChunkRecord
+    document: DocumentRecord
+    rank: float
+
+
+def search_terms(terms: Iterable[str]) -> list[str]:
+    """Terms reduced to what both full-text engines index: lowercase alphanumerics.
+
+    Anything else splits a term the way the index splits it (`walk-forward` is
+    `walk` and `forward`), and punctuation, operators and quotes are dropped.
+    That is also what keeps a user-supplied string from being parsed as query
+    syntax by the database.
+    """
+    seen: dict[str, None] = {}
+    for term in terms:
+        for piece in re.split(r"[^0-9a-z]+", term.lower()):
+            if len(piece) >= 2:
+                seen[piece] = None
+    return list(seen)
 
 
 @dataclass(frozen=True, slots=True)
@@ -447,6 +513,53 @@ class Store(ABC):
 
     @abstractmethod
     def invalidate_fingerprint(self, project_key: str) -> None: ...
+
+    # --- knowledge base ----------------------------------------------------
+    @abstractmethod
+    def get_document(self, uri: str) -> DocumentRecord | None: ...
+
+    @abstractmethod
+    def replace_document(self, document: DocumentRecord, chunks: Sequence[ChunkRecord]) -> None:
+        """Insert or update a document and swap in its chunks, atomically."""
+
+    @abstractmethod
+    def delete_document(self, uri: str) -> bool: ...
+
+    @abstractmethod
+    def document_hashes(self, root: str) -> dict[str, str]:
+        """uri -> content hash for everything indexed under a root."""
+
+    @abstractmethod
+    def search_chunks(
+        self,
+        terms: Sequence[str],
+        *,
+        limit: int = 30,
+        project_key: str | None = None,
+        source_types: Sequence[str] = (),
+    ) -> list[ChunkHit]: ...
+
+    @abstractmethod
+    def term_document_frequency(self, terms: Sequence[str]) -> dict[str, int]:
+        """How many chunks contain each term. Zero means the corpus never says it."""
+
+    @abstractmethod
+    def get_chunk(self, chunk_id: UUID) -> ChunkHit | None: ...
+
+    @abstractmethod
+    def document_projects(self) -> list[str]:
+        """Every project key that has at least one document."""
+
+    @abstractmethod
+    def count_chunks(self) -> int: ...
+
+    @abstractmethod
+    def count_documents(self, root: str | None = None) -> int: ...
+
+    @abstractmethod
+    def list_documents(
+        self, *, limit: int = 100, source_type: str | None = None
+    ) -> list[DocumentRecord]: ...
 
     # --- telemetry ---------------------------------------------------------
     @abstractmethod

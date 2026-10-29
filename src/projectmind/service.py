@@ -31,6 +31,7 @@ from projectmind.gate.rules import GateDecision, decide, describe
 from projectmind.logging import get_logger
 from projectmind.models import ContextBundle, Fingerprint, Project, ServedRecord, utcnow
 from projectmind.profile.repository import ProfileRepository, ProfileSlice
+from projectmind.retrieval.evidence import EvidenceRetriever
 from projectmind.storage import Store, open_store
 from projectmind.storage.base import BundleLogEntry, UsageStats
 
@@ -92,6 +93,7 @@ class MemoryService:
 
             retriever = HybridRetriever(store, self.settings)
         self.retriever = retriever
+        self.evidence = EvidenceRetriever(store, self.settings)
 
     @classmethod
     def open(cls, settings: Settings | None = None) -> MemoryService:
@@ -196,6 +198,20 @@ class MemoryService:
                 token_budget=self._profile_budget(max_tokens),
             )
 
+        evidence = budgeting.EvidenceBudget((), 0)
+        evidence_trace: list[dict[str, Any]] = []
+        found = self.evidence.retrieve(
+            analysis.prompt, project_key=project.key, trace=evidence_trace
+        )
+        trace["evidence"] = evidence_trace
+        if found:
+            allowance = max(0, self.settings.total_token_cap - profile_slice.tokens)
+            evidence = budgeting.fit_evidence(
+                found,
+                token_cap=min(self.settings.evidence_token_cap, allowance),
+                max_items=self.settings.max_evidence,
+            )
+
         episodic = budgeting.BudgetReport((), 0)
         if decision.inject_episodic and self.retriever is not None:
             candidate_trace: list[dict[str, Any]] = []
@@ -214,7 +230,7 @@ class MemoryService:
                 max_records=self.settings.max_episodic_records,
             )
             episodic = budgeting.enforce_total(
-                profile_slice.tokens, episodic, settings=self.settings
+                profile_slice.tokens + evidence.tokens, episodic, settings=self.settings
             )
 
         reason = describe(decision)
@@ -224,6 +240,8 @@ class MemoryService:
             reason = f"{reason}; no profile statement cleared the relevance floor"
         if decision.inject_episodic and not episodic.kept:
             reason = f"{reason}; nothing in episodic memory cleared the bar"
+        if evidence.kept:
+            reason = f"{reason}; {len(evidence.kept)} source excerpt(s) covered the question"
 
         return ContextBundle(
             generated_at=moment,
@@ -232,8 +250,10 @@ class MemoryService:
             entities=analysis.entities,
             profile=profile_slice.served(),
             episodic=episodic.kept,
+            evidence=evidence.kept,
             profile_tokens=profile_slice.tokens,
             episodic_tokens=episodic.tokens,
+            evidence_tokens=evidence.tokens,
             gate_reason=reason,
         )
 
@@ -377,8 +397,10 @@ class MemoryService:
                     cross_project_ids=tuple(
                         item.id for item in bundle.episodic if item.cross_project
                     ),
+                    evidence_ids=tuple(item.chunk_id for item in bundle.evidence),
                     profile_tokens=bundle.profile_tokens,
                     episodic_tokens=bundle.episodic_tokens,
+                    evidence_tokens=bundle.evidence_tokens,
                     gate_reason=bundle.gate_reason,
                     latency_ms=bundle.latency_ms,
                     injected=not bundle.is_empty,

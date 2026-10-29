@@ -5,6 +5,9 @@ from __future__ import annotations
 from projectmind.config import Settings, get_settings
 from projectmind.storage.base import (
     BundleLogEntry,
+    ChunkHit,
+    ChunkRecord,
+    DocumentRecord,
     HistoryFilter,
     RecordFilter,
     ScoredRecord,
@@ -12,6 +15,7 @@ from projectmind.storage.base import (
     Store,
     UsageStats,
     aggregate_usage,
+    search_terms,
 )
 from projectmind.storage.embeddings import (
     EmbeddingProvider,
@@ -24,6 +28,9 @@ from projectmind.storage.sqlite_store import SqliteStore
 
 __all__ = [
     "BundleLogEntry",
+    "ChunkHit",
+    "ChunkRecord",
+    "DocumentRecord",
     "EmbeddingProvider",
     "HashingEmbedder",
     "HistoryFilter",
@@ -38,6 +45,7 @@ __all__ = [
     "embed_one",
     "get_embedder",
     "open_store",
+    "search_terms",
 ]
 
 

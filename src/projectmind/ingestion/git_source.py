@@ -41,6 +41,7 @@ _MERGE_BRANCH = re.compile(
     r"^merge (?:branch|pull request #\d+ from|remote-tracking branch)\s+'?([^'\s]+)'?",
     re.IGNORECASE,
 )
+_MERGE_LABEL = re.compile(r"^merge:\s*(?P<name>.+)$", re.IGNORECASE)
 _TAG_REF = re.compile(r"tag:\s*([^,)]+)")
 
 
@@ -113,10 +114,14 @@ class Commit:
     @property
     def merged_branch(self) -> str | None:
         match = _MERGE_BRANCH.match(self.subject.strip())
-        if not match:
-            return None
-        branch = match.group(1).strip()
-        return branch.removeprefix("origin/") or None
+        if match:
+            return match.group(1).strip().removeprefix("origin/") or None
+        # "merge: phase 5 reflection loop into main": the author's own label for
+        # the unit of work that was integrated.
+        labelled = _MERGE_LABEL.match(self.subject.strip())
+        if labelled and self.is_merge:
+            return labelled.group("name").strip()[:120] or None
+        return None
 
     @property
     def touched_directories(self) -> tuple[str, ...]:
@@ -155,7 +160,9 @@ def _git(root: Path, *args: str) -> tuple[int, str, str]:
 def _run(root: Path, *args: str) -> str | None:
     code, stdout, stderr = _git(root, *args)
     if code != 0:
-        log.warning(
+        # Expected for plenty of healthy repositories (no remote, no commits yet),
+        # so this is not a warning; callers that care inspect the result.
+        log.debug(
             "git returned non-zero",
             extra={"root": str(root), "git_args": list(args), "stderr": stderr.strip()[:200]},
         )
