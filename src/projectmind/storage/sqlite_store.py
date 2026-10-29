@@ -29,6 +29,7 @@ from projectmind.models import (
 )
 from projectmind.storage.base import (
     BundleLogEntry,
+    HistoryFilter,
     RecordFilter,
     ScoredRecord,
     StatementFilter,
@@ -386,8 +387,11 @@ class SqliteStore(Store):
             INSERT OR REPLACE INTO bundle_log (
                 bundle_id, created_at, project_key, task_type, prompt_hash, prompt_words,
                 profile_ids, episodic_ids, cross_project_ids, profile_tokens, episodic_tokens,
-                gate_reason, latency_ms, injected, feedback, feedback_note
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                gate_reason, latency_ms, injected, feedback, feedback_note,
+                source, session_id, cwd, prompt_text, rendered_text, trace,
+                embedder, version, delivered
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                      ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 str(entry.bundle_id),
@@ -406,6 +410,15 @@ class SqliteStore(Store):
                 int(entry.injected),
                 None if entry.feedback is None else int(entry.feedback),
                 entry.feedback_note,
+                entry.source,
+                entry.session_id,
+                entry.cwd,
+                entry.prompt_text,
+                entry.rendered_text,
+                dumps(entry.trace),
+                entry.embedder,
+                entry.version,
+                None if entry.delivered is None else int(entry.delivered),
             ),
         )
         self._conn.commit()
@@ -423,6 +436,49 @@ class SqliteStore(Store):
             "SELECT * FROM bundle_log ORDER BY created_at DESC LIMIT ?", (int(limit),)
         ).fetchall()
         return [_bundle_from_row(row) for row in rows]
+
+    def get_bundle(self, bundle_id: UUID) -> BundleLogEntry | None:
+        row = self._conn.execute(
+            "SELECT * FROM bundle_log WHERE bundle_id = ?", (str(bundle_id),)
+        ).fetchone()
+        return _bundle_from_row(row) if row else None
+
+    def find_bundles(self, query: HistoryFilter) -> list[BundleLogEntry]:
+        clauses: list[str] = []
+        params: list[Any] = []
+        if query.project_key:
+            clauses.append("project_key = ?")
+            params.append(query.project_key)
+        if query.source:
+            clauses.append("source = ?")
+            params.append(query.source)
+        if query.served is not None:
+            clauses.append("injected = ?")
+            params.append(int(query.served))
+        if query.since:
+            clauses.append("created_at >= ?")
+            params.append(to_iso(query.since))
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        params.append(int(query.limit))
+        rows = self._conn.execute(
+            f"SELECT * FROM bundle_log {where} ORDER BY created_at DESC LIMIT ?", params
+        ).fetchall()
+        return [_bundle_from_row(row) for row in rows]
+
+    def mark_delivered(self, bundle_id: UUID, delivered: bool) -> bool:
+        cursor = self._conn.execute(
+            "UPDATE bundle_log SET delivered = ? WHERE bundle_id = ?",
+            (int(delivered), str(bundle_id)),
+        )
+        self._conn.commit()
+        return cursor.rowcount > 0
+
+    def purge_bundles(self, before: datetime) -> int:
+        cursor = self._conn.execute(
+            "DELETE FROM bundle_log WHERE created_at < ?", (to_iso(before),)
+        )
+        self._conn.commit()
+        return cursor.rowcount
 
     def usage_stats(self, *, since: datetime | None = None) -> UsageStats:
         where = "WHERE created_at >= ?" if since else ""
@@ -449,6 +505,15 @@ def _bundle_from_row(row: Any) -> BundleLogEntry:
         injected=bool(row["injected"]),
         feedback=None if row["feedback"] is None else bool(row["feedback"]),
         feedback_note=row["feedback_note"] or "",
+        source=row["source"] or "cli",
+        session_id=row["session_id"],
+        cwd=row["cwd"],
+        prompt_text=row["prompt_text"],
+        rendered_text=row["rendered_text"],
+        trace=loads(row["trace"], {}),
+        embedder=row["embedder"],
+        version=row["version"],
+        delivered=None if row["delivered"] is None else bool(row["delivered"]),
     )
 
 

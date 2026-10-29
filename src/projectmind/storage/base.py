@@ -77,10 +77,12 @@ class ScoredRecord:
 
 @dataclass(slots=True)
 class BundleLogEntry:
-    """One `get_context` call, recorded so the gate can be scored offline.
+    """One interaction with ProjectMind: what was asked and what it answered.
 
-    The prompt itself is never stored, only a hash of it. The point is to
-    measure retrieval behaviour, not to keep a transcript of the user's work.
+    `prompt_hash` is always present. `prompt_text`, `rendered_text` and `trace`
+    are filled only when history is `full` (the default): they are what makes an
+    answer auditable and replayable. Under `minimal`, or for an excluded
+    project, only the hashed metadata is kept.
     """
 
     bundle_id: UUID
@@ -99,6 +101,26 @@ class BundleLogEntry:
     injected: bool = False
     feedback: bool | None = None
     feedback_note: str = ""
+    source: str = "cli"
+    session_id: str | None = None
+    cwd: str | None = None
+    prompt_text: str | None = None
+    rendered_text: str | None = None
+    trace: dict[str, Any] = field(default_factory=dict)
+    embedder: str | None = None
+    version: str | None = None
+    delivered: bool | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class HistoryFilter:
+    """Which interactions `history list` and `history export` want."""
+
+    project_key: str | None = None
+    source: str | None = None
+    served: bool | None = None
+    since: datetime | None = None
+    limit: int = 50
 
 
 @dataclass(slots=True)
@@ -435,6 +457,18 @@ class Store(ABC):
 
     @abstractmethod
     def recent_bundles(self, limit: int = 50) -> list[BundleLogEntry]: ...
+
+    @abstractmethod
+    def get_bundle(self, bundle_id: UUID) -> BundleLogEntry | None: ...
+
+    @abstractmethod
+    def find_bundles(self, query: HistoryFilter) -> list[BundleLogEntry]: ...
+
+    @abstractmethod
+    def mark_delivered(self, bundle_id: UUID, delivered: bool) -> bool: ...
+
+    @abstractmethod
+    def purge_bundles(self, before: datetime) -> int: ...
 
     @abstractmethod
     def usage_stats(self, *, since: datetime | None = None) -> UsageStats: ...

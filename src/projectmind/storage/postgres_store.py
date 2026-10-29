@@ -28,6 +28,7 @@ from projectmind.models import (
 )
 from projectmind.storage.base import (
     BundleLogEntry,
+    HistoryFilter,
     RecordFilter,
     ScoredRecord,
     StatementFilter,
@@ -414,10 +415,13 @@ class PostgresStore(Store):
             INSERT INTO bundle_log (
                 bundle_id, created_at, project_key, task_type, prompt_hash, prompt_words,
                 profile_ids, episodic_ids, cross_project_ids, profile_tokens, episodic_tokens,
-                gate_reason, latency_ms, injected, feedback, feedback_note
+                gate_reason, latency_ms, injected, feedback, feedback_note,
+                source, session_id, cwd, prompt_text, rendered_text, trace,
+                embedder, version, delivered
             ) VALUES (
                 %s::uuid, %s, %s, %s, %s, %s, %s::jsonb, %s::jsonb, %s::jsonb,
-                %s, %s, %s, %s, %s, %s, %s
+                %s, %s, %s, %s, %s, %s, %s,
+                %s, %s, %s, %s, %s, %s::jsonb, %s, %s, %s
             )
             ON CONFLICT (bundle_id) DO UPDATE SET
                 feedback = EXCLUDED.feedback, feedback_note = EXCLUDED.feedback_note
@@ -439,6 +443,15 @@ class PostgresStore(Store):
                 entry.injected,
                 entry.feedback,
                 entry.feedback_note,
+                entry.source,
+                entry.session_id,
+                entry.cwd,
+                entry.prompt_text,
+                entry.rendered_text,
+                dumps(entry.trace),
+                entry.embedder,
+                entry.version,
+                entry.delivered,
             ),
         )
 
@@ -456,6 +469,44 @@ class PostgresStore(Store):
             "SELECT * FROM bundle_log ORDER BY created_at DESC LIMIT %s", (int(limit),)
         )
         return [_bundle_from_row(row) for row in rows]
+
+    def get_bundle(self, bundle_id: UUID) -> BundleLogEntry | None:
+        rows = self._query("SELECT * FROM bundle_log WHERE bundle_id = %s", (str(bundle_id),))
+        return _bundle_from_row(rows[0]) if rows else None
+
+    def find_bundles(self, query: HistoryFilter) -> list[BundleLogEntry]:
+        clauses: list[str] = []
+        params: list[Any] = []
+        if query.project_key:
+            clauses.append("project_key = %s")
+            params.append(query.project_key)
+        if query.source:
+            clauses.append("source = %s")
+            params.append(query.source)
+        if query.served is not None:
+            clauses.append("injected = %s")
+            params.append(query.served)
+        if query.since:
+            clauses.append("created_at >= %s")
+            params.append(query.since)
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        params.append(int(query.limit))
+        rows = self._query(
+            f"SELECT * FROM bundle_log {where} ORDER BY created_at DESC LIMIT %s", params
+        )
+        return [_bundle_from_row(row) for row in rows]
+
+    def mark_delivered(self, bundle_id: UUID, delivered: bool) -> bool:
+        return (
+            self._execute(
+                "UPDATE bundle_log SET delivered = %s WHERE bundle_id = %s",
+                (delivered, str(bundle_id)),
+            )
+            > 0
+        )
+
+    def purge_bundles(self, before: datetime) -> int:
+        return self._execute("DELETE FROM bundle_log WHERE created_at < %s", (before,))
 
     def usage_stats(self, *, since: datetime | None = None) -> UsageStats:
         where = "WHERE created_at >= %s" if since else ""
@@ -481,6 +532,15 @@ def _bundle_from_row(row: dict[str, Any]) -> BundleLogEntry:
         injected=bool(row["injected"]),
         feedback=None if row["feedback"] is None else bool(row["feedback"]),
         feedback_note=row["feedback_note"] or "",
+        source=row["source"] or "cli",
+        session_id=row["session_id"],
+        cwd=row["cwd"],
+        prompt_text=row["prompt_text"],
+        rendered_text=row["rendered_text"],
+        trace=loads(row["trace"], {}),
+        embedder=row["embedder"],
+        version=row["version"],
+        delivered=row["delivered"],
     )
 
 

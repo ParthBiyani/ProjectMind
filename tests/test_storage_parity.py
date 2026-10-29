@@ -34,7 +34,7 @@ from projectmind.models import (
     StatementStatus,
 )
 from projectmind.storage import RecordFilter, StatementFilter, Store
-from projectmind.storage.base import BundleLogEntry
+from projectmind.storage.base import BundleLogEntry, HistoryFilter
 from projectmind.storage.sqlite_store import SqliteStore
 
 PG_URL_ENV = "PROJECTMIND_TEST_DB_URL"
@@ -129,8 +129,8 @@ def make_statement(**overrides: object) -> ProfileStatement:
 
 class TestMigrations:
     def test_migrate_is_idempotent(self, store: Store) -> None:
-        assert store.migrate() == 1
-        assert store.migrate() == 1
+        assert store.migrate() == 2
+        assert store.migrate() == 2
 
 
 class TestProjects:
@@ -455,3 +455,93 @@ class TestTelemetry:
         assert stats.bundles == 0
         assert stats.injection_rate == 0.0
         assert stats.observed_false_injection_rate == 0.0
+
+
+class TestInteractionHistory:
+    def _entry(self, **overrides: object) -> BundleLogEntry:
+        defaults: dict[str, object] = {
+            "bundle_id": uuid4(),
+            "created_at": datetime.now(UTC),
+            "project_key": "kairos",
+            "task_type": "debug",
+            "prompt_hash": "abc123",
+            "prompt_words": 9,
+            "injected": True,
+        }
+        defaults.update(overrides)
+        return BundleLogEntry(**defaults)  # type: ignore[arg-type]
+
+    def test_the_full_interaction_roundtrips(self, store: Store) -> None:
+        entry = self._entry(
+            source="hook",
+            session_id="s-1",
+            cwd="D:/Projects/Kairos",
+            prompt_text="why did the retry loop hang \u2014 caf\u00e9?",
+            rendered_text="## ProjectMind context",
+            trace={"decision": {"reason": "debug"}, "retrieval": [{"outcome": "served"}]},
+            embedder="hashing",
+            version="0.2.0",
+        )
+        store.log_bundle(entry)
+        loaded = store.get_bundle(entry.bundle_id)
+        assert loaded is not None
+        assert loaded.source == "hook"
+        assert loaded.session_id == "s-1"
+        assert loaded.cwd == "D:/Projects/Kairos"
+        assert loaded.prompt_text == "why did the retry loop hang \u2014 caf\u00e9?"
+        assert loaded.rendered_text == "## ProjectMind context"
+        assert loaded.trace["retrieval"][0]["outcome"] == "served"
+        assert loaded.embedder == "hashing"
+        assert loaded.version == "0.2.0"
+        assert loaded.delivered is None
+
+    def test_a_minimal_entry_keeps_no_text(self, store: Store) -> None:
+        entry = self._entry()
+        store.log_bundle(entry)
+        loaded = store.get_bundle(entry.bundle_id)
+        assert loaded is not None
+        assert loaded.prompt_text is None
+        assert loaded.rendered_text is None
+        assert loaded.trace == {}
+
+    def test_an_unknown_bundle_is_none(self, store: Store) -> None:
+        assert store.get_bundle(uuid4()) is None
+
+    def test_delivery_is_recorded_after_the_fact(self, store: Store) -> None:
+        entry = self._entry()
+        store.log_bundle(entry)
+        assert store.mark_delivered(entry.bundle_id, True) is True
+        loaded = store.get_bundle(entry.bundle_id)
+        assert loaded is not None
+        assert loaded.delivered is True
+        assert store.mark_delivered(uuid4(), True) is False
+
+    def test_find_filters_combine(self, store: Store) -> None:
+        now = datetime.now(UTC)
+        store.log_bundle(self._entry(source="hook", project_key="kairos"))
+        store.log_bundle(self._entry(source="mcp:get_context", project_key="kairos"))
+        store.log_bundle(self._entry(source="hook", project_key="sprout", injected=False))
+        store.log_bundle(self._entry(source="hook", created_at=now - timedelta(days=40)))
+
+        assert len(store.find_bundles(HistoryFilter())) == 4
+        assert len(store.find_bundles(HistoryFilter(source="hook"))) == 3
+        assert len(store.find_bundles(HistoryFilter(project_key="sprout"))) == 1
+        assert len(store.find_bundles(HistoryFilter(served=False))) == 1
+        assert len(store.find_bundles(HistoryFilter(since=now - timedelta(days=7)))) == 3
+        assert len(store.find_bundles(HistoryFilter(source="hook", served=True, limit=1))) == 1
+
+    def test_find_returns_newest_first(self, store: Store) -> None:
+        now = datetime.now(UTC)
+        older = self._entry(created_at=now - timedelta(hours=2))
+        newer = self._entry(created_at=now)
+        store.log_bundle(older)
+        store.log_bundle(newer)
+        found = store.find_bundles(HistoryFilter())
+        assert [item.bundle_id for item in found] == [newer.bundle_id, older.bundle_id]
+
+    def test_purge_removes_only_what_is_older(self, store: Store) -> None:
+        now = datetime.now(UTC)
+        store.log_bundle(self._entry(created_at=now - timedelta(days=90)))
+        store.log_bundle(self._entry(created_at=now))
+        assert store.purge_bundles(now - timedelta(days=30)) == 1
+        assert len(store.find_bundles(HistoryFilter())) == 1
