@@ -49,6 +49,23 @@ REASON_MARKERS = (
     r"\bit turns out\b",
 )
 
+#: Lines that are metadata about a commit, not words the author wrote about it.
+#: A body holding only a `Co-Authored-By:` trailer used to be read as a stated
+#: reason at 0.85 confidence.
+TRAILER_LINE = re.compile(
+    r"^\s*(?:co-authored-by|signed-off-by|reviewed-by|acked-by|tested-by|reported-by|"
+    r"change-id|cc|fixes|closes|resolves|see|refs?)\s*[:#]|"
+    r"^\s*(?:\U0001F916\s*)?generated (?:with|by)\b|^\s*https?://\S+\s*$",
+    re.IGNORECASE,
+)
+
+
+def clean_body(body: str) -> str:
+    """The body without trailers and bare links."""
+    kept = [line for line in body.splitlines() if not TRAILER_LINE.match(line)]
+    return "\n".join(kept).strip()
+
+
 #: Phrases that mark an alternative that was considered and dropped.
 ALTERNATIVE_MARKERS = (
     r"instead of\s+(?P<value>[^.,;\n]{2,48})",
@@ -292,17 +309,20 @@ def extract_entities(commit: Commit, vocabulary: frozenset[str]) -> tuple[str, .
     text = commit.message.lower()
     found = {term for term in vocabulary if re.search(rf"(?<![a-z0-9]){re.escape(term)}\b", text)}
 
+    # A path names an entity only through a whole component: `lib/bloc/x.dart`
+    # is bloc, `blocks/x.py` is not.
+    components: set[str] = set()
     for path in commit.files:
-        stem = path.replace("\\", "/").lower()
-        for term in vocabulary:
-            if f"/{term}" in stem or stem.startswith(term):
-                found.add(term)
-    return tuple(sorted(normalise(term) for term in found))
+        for part in path.replace("\\", "/").lower().split("/"):
+            components.add(part)
+            components.update(piece for piece in re.split(r"[^a-z0-9]+", part) if piece)
+    found |= {term for term in vocabulary if term in components}
+    return tuple(sorted({normalise(term) for term in found}))
 
 
 def stated_reason(commit: Commit) -> str | None:
     """The author's own words, when they gave a reason."""
-    body = commit.body.strip()
+    body = clean_body(commit.body)
     if not body:
         return None
     for line in body.splitlines():
@@ -373,11 +393,11 @@ class DecisionExtractor:
         elif commit.is_merge and commit.merged_branch:
             confidence = CONFIDENCE_MERGE
             is_inference = True
-            why = f"integrated the {commit.merged_branch} branch as a unit of work"
+            why = ""  # a merge is evidence of a unit of work, not of a reason
         elif commit_type in {"feat", "refactor", "perf"} and entities and len(commit.summary) >= 24:
             confidence = CONFIDENCE_CONVENTIONAL
             is_inference = True
-            why = f"adopted while working on {', '.join(entities[:3])}"
+            why = ""  # nothing was said; saying so is better than making it up
         else:
             # There used to be a fourth tier here that accepted any commit
             # naming an entity. Over a local speech repository it turned 52% of
@@ -438,7 +458,7 @@ class FailureExtractor:
                 project_id=context.project_id,
                 type=RecordType.REVERSAL,
                 what=f"Reverted: {reverted}"[:300],
-                why=reason or "the change was undone rather than fixed forward",
+                why=reason or "",
                 rejected_alternatives=rejected_alternatives(commit),
                 outcome="reverted",
                 entities=entities,
@@ -470,7 +490,7 @@ class FailureExtractor:
             project_id=context.project_id,
             type=RecordType.FAILURE,
             what=commit.summary[:300],
-            why=reason or f"symptom described in the commit: {commit.subject[:160]}",
+            why=reason or "",
             rejected_alternatives=rejected_alternatives(commit),
             outcome="fixed in this commit",
             entities=entities,
