@@ -75,3 +75,21 @@ class TestEvalDir:
         )
         with pytest.raises(FileNotFoundError, match="PROJECTMIND_EVAL_DIR"):
             eval_dir()
+
+
+class TestListSettingsFromTheEnvironment:
+    """Comma-separated lists are documented for these, and used to be rejected."""
+
+    def test_excluded_repos_accepts_a_comma_separated_value(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("PROJECTMIND_EXCLUDED_REPOS", "client-*, secret-repo")
+        from projectmind.config import Settings
+
+        assert Settings(db_url=None).excluded_repos == ("client-*", "secret-repo")
+
+    def test_an_empty_value_means_no_exclusions(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("PROJECTMIND_EXCLUDED_REPOS", "")
+        from projectmind.config import Settings
+
+        assert Settings(db_url=None).excluded_repos == ()

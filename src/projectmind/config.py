@@ -11,10 +11,10 @@ from __future__ import annotations
 import functools
 import os
 from pathlib import Path
-from typing import Literal
+from typing import Annotated, Literal
 
 from pydantic import AliasChoices, Field, field_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 DEFAULT_HOME = Path.home() / ".projectmind"
 
@@ -104,9 +104,16 @@ class Settings(BaseSettings):
     )
 
     # --- privacy -----------------------------------------------------------
-    excluded_repos: tuple[str, ...] = Field(
+    excluded_repos: Annotated[tuple[str, ...], NoDecode] = Field(
         default=(),
         description="Repository names or glob patterns that are never read or ingested.",
+    )
+    authors: Annotated[tuple[str, ...], NoDecode] = Field(
+        default=(),
+        description=(
+            "Emails whose commits are yours (comma separated), in addition to git's "
+            "user.email. Use it for old addresses and noreply addresses."
+        ),
     )
     embedding_provider: str = Field(
         default="auto",
@@ -131,7 +138,7 @@ class Settings(BaseSettings):
     def _expand(cls, value: Path) -> Path:
         return value.expanduser().resolve()
 
-    @field_validator("excluded_repos", mode="before")
+    @field_validator("excluded_repos", "authors", mode="before")
     @classmethod
     def _split_csv(cls, value: object) -> object:
         if isinstance(value, str):
