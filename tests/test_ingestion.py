@@ -146,6 +146,38 @@ class TestRealRepository:
         assert source.is_repository() is False
         assert source.commits() == []
 
+    def test_a_readable_repository_has_no_unreadable_reason(self, tmp_path: Path) -> None:
+        repo = init_repo(tmp_path / "repo", [("feat: one", "")])
+        assert LocalGitSource(repo).unreadable_reason() is None
+
+    def test_a_plain_directory_is_reported_as_not_a_repository(self, tmp_path: Path) -> None:
+        assert LocalGitSource(tmp_path).unreadable_reason() == "not a git repository"
+
+    def test_a_broken_git_directory_reports_gits_own_words(self, tmp_path: Path) -> None:
+        (tmp_path / ".git").mkdir()
+        reason = LocalGitSource(tmp_path).unreadable_reason()
+        assert reason is not None
+        assert reason.startswith("git could not read it")
+
+    def test_every_invocation_overrides_the_ownership_check_for_itself_only(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Repositories made under another Windows account are refused by git's
+        ownership check. The override must be per command, never global config."""
+        seen: list[list[str]] = []
+        real = subprocess.run
+
+        def spy(args: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+            seen.append(list(args))
+            return real(args, **kwargs)  # type: ignore[no-any-return]
+
+        repo = init_repo(tmp_path / "repo", [("feat: one", "")])
+        monkeypatch.setattr(subprocess, "run", spy)
+        LocalGitSource(repo).commits()
+        assert seen
+        assert all(args[:3] == ["git", "-c", "safe.directory=*"] for args in seen)
+        assert not any("config" in args and "--global" in args for args in seen)
+
     def test_discovery_stops_at_the_repository_boundary(self, tmp_path: Path) -> None:
         init_repo(tmp_path / "a", [("feat: one", "")])
         init_repo(tmp_path / "b", [("feat: two", "")])

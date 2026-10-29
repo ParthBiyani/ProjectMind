@@ -127,8 +127,9 @@ class IngestionPipeline:
             return result
 
         source = LocalGitSource(path, authors=authors, since=since, max_commits=max_commits)
-        if not source.is_repository():
-            result.skipped_reason = "not a git repository"
+        unreadable = source.unreadable_reason()
+        if unreadable is not None:
+            result.skipped_reason = unreadable
             return result
 
         commits = source.commits()
