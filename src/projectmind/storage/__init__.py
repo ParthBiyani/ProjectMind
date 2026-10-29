@@ -5,6 +5,7 @@ from __future__ import annotations
 from projectmind.config import Settings, get_settings
 from projectmind.storage.base import (
     BundleLogEntry,
+    HistoryFilter,
     RecordFilter,
     ScoredRecord,
     StatementFilter,
@@ -25,6 +26,7 @@ __all__ = [
     "BundleLogEntry",
     "EmbeddingProvider",
     "HashingEmbedder",
+    "HistoryFilter",
     "RecordFilter",
     "ScoredRecord",
     "SqliteStore",

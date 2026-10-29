@@ -47,14 +47,14 @@ class Change:
     applied: bool
 
 
-def _launcher() -> str:
-    """How to invoke this installation, independent of PATH.
+def _hook_launcher() -> str:
+    """The hook command: isolated mode, and the slim entry that skips the CLI.
 
-    A console script only works if its directory happens to be on PATH, which
-    it often is not inside an editor's hook subprocess. Going through the
-    interpreter that is running right now always works.
+    `-I` drops the working directory from the import path. A hook runs with the
+    user's project as its cwd, and a project that happens to contain `yaml.py`
+    or a `typer/` folder would otherwise shadow the real module.
     """
-    return f'"{sys.executable}" -m projectmind.cli'
+    return f'"{sys.executable}" -I -m projectmind.hook_entry'
 
 
 def _claude_dir() -> Path:
@@ -65,8 +65,23 @@ def _claude_dir() -> Path:
 
 
 def _mcp_config_path() -> Path:
-    """Where Claude Code keeps user-scope MCP server registrations."""
-    return Path.home() / ".claude.json"
+    """Where Claude Code keeps user-scope MCP server registrations.
+
+    Beside `settings.json` when `CLAUDE_CONFIG_DIR` points elsewhere, so the
+    hooks and the server always land in the same installation.
+    """
+    import os
+
+    base = os.environ.get("CLAUDE_CONFIG_DIR")
+    return Path(base) / ".claude.json" if base else Path.home() / ".claude.json"
+
+
+def claude_settings_path() -> Path:
+    return _claude_dir() / "settings.json"
+
+
+def claude_mcp_path() -> Path:
+    return _mcp_config_path()
 
 
 def _load_json(path: Path) -> dict[str, Any]:
@@ -100,12 +115,24 @@ def _hook_entry(command: str) -> dict[str, Any]:
     }
 
 
+#: What identifies a hook entry as ours. Deliberately the module names and not
+#: the bare word "projectmind": another tool's hook can easily have that word in
+#: a path (this very repository is called ProjectMind), and uninstalling must
+#: never take someone else's hook with it.
+HOOK_SIGNATURES = ("projectmind.hook_entry", "projectmind.cli hook")
+
+
+def is_ours(entry: Any) -> bool:
+    text = json.dumps(entry)
+    return any(signature in text for signature in HOOK_SIGNATURES)
+
+
 def _contains_marker(entries: list[Any]) -> bool:
-    return MARKER in json.dumps(entries)
+    return any(is_ours(entry) for entry in entries)
 
 
 def _strip_marker(entries: list[Any]) -> list[Any]:
-    return [entry for entry in entries if MARKER not in json.dumps(entry)]
+    return [entry for entry in entries if not is_ours(entry)]
 
 
 @app.command("claude-code")
@@ -154,10 +181,9 @@ def claude_code(
 def _apply_hooks(path: Path, *, remove: bool, dry_run: bool) -> list[Change]:
     config = _load_json(path)
     hook_config: dict[str, Any] = dict(config.get("hooks") or {})
-    launcher = _launcher()
     wanted = {
-        "UserPromptSubmit": f"{launcher} hook user-prompt-submit",
-        "SessionStart": f"{launcher} hook session-start",
+        "UserPromptSubmit": f"{_hook_launcher()} user-prompt-submit",
+        "SessionStart": f"{_hook_launcher()} session-start",
     }
 
     changes: list[Change] = []
@@ -205,7 +231,7 @@ def _apply_mcp(path: Path, *, remove: bool, dry_run: bool) -> list[Change]:
         servers[MARKER] = {
             "type": "stdio",
             "command": sys.executable,
-            "args": ["-m", "projectmind.cli", "mcp"],
+            "args": ["-I", "-m", "projectmind.cli", "mcp"],
             "env": {},
         }
         change = Change(path, "registered the mcp server", not dry_run)

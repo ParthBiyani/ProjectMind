@@ -43,8 +43,14 @@ class JsonFormatter(logging.Formatter):
         return json.dumps(payload, default=str)
 
 
-def configure(settings: Settings | None = None, *, force: bool = False) -> None:
-    """Install handlers once per process."""
+def configure(
+    settings: Settings | None = None, *, force: bool = False, console: bool = True
+) -> None:
+    """Install handlers once per process.
+
+    `console=False` keeps stderr silent, for callers such as agent hooks whose
+    stderr a client may surface to the user.
+    """
     global _CONFIGURED
     if _CONFIGURED and not force:
         return
@@ -56,10 +62,11 @@ def configure(settings: Settings | None = None, *, force: bool = False) -> None:
     root.propagate = False
 
     # stderr, never stdout: stdout is the MCP transport.
-    console = logging.StreamHandler(stream=sys.stderr)
-    console.setLevel(logging.WARNING)
-    console.setFormatter(logging.Formatter("projectmind %(levelname)s %(message)s"))
-    root.addHandler(console)
+    if console:
+        stream_handler = logging.StreamHandler(stream=sys.stderr)
+        stream_handler.setLevel(logging.WARNING)
+        stream_handler.setFormatter(logging.Formatter("projectmind %(levelname)s %(message)s"))
+        root.addHandler(stream_handler)
 
     try:
         settings.ensure_home()

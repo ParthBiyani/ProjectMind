@@ -304,7 +304,8 @@ class TestHybridRetriever:
 @pytest.fixture(scope="module")
 def phase_four() -> ScoreReport:
     with tempfile.TemporaryDirectory() as tmp, live_service(Path(tmp)) as service:
-        return run(EvalSet.from_yaml(EVAL_PATH), LiveSystem(service))
+        eval_set = EvalSet.from_yaml(EVAL_PATH)
+        return run(eval_set, LiveSystem(service, as_of=eval_set.as_of))
 
 
 class TestPhaseFourTargets:
@@ -325,16 +326,20 @@ class TestPhaseFourTargets:
         assert phase_four.forbidden_rate == 0.0
 
     def test_false_injection_is_tracked_and_currently_misses(self, phase_four: ScoreReport) -> None:
-        """Target is 0.10 and the system sits at 0.174.
+        """Target is 0.10; with the clock pinned the system measures 0.323.
 
         Pinned as a ratchet rather than as a pass: it must not get worse, and
-        the gap is documented in docs/evaluation.md instead of being hidden by
-        relaxing the target. Note that 0.136 was reachable without the absolute
-        vector floor, at the cost of serving a record for a query about
-        kubernetes against a corpus containing none — a kind of false injection
-        this eval set has no query for and therefore cannot price.
+        the gap is documented rather than hidden by relaxing the target.
+
+        The README and docs/evaluation.md recorded 0.174 for this set. That
+        figure does not reproduce: the service never passed its clock to the
+        retriever, so every earlier run scored against the wall clock, and
+        recency decay was quietly changing the result. With `as_of` pinned the
+        measurement is stable across hash seeds and clock changes, and it is
+        0.323. Recalibrating the floors against a pinned clock is tracked as
+        part of the retrieval rework; the ratchet below is today's honest value.
         """
-        assert phase_four.false_injection_rate <= 0.20
+        assert phase_four.false_injection_rate <= 0.33
 
     def test_budgets_still_hold(self, phase_four: ScoreReport) -> None:
         assert phase_four.budget_violations == 0

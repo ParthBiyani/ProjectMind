@@ -19,8 +19,7 @@ from typing import Any
 import yaml
 from pydantic import BaseModel, Field, model_validator
 
-FIXTURE_ROOT = Path(__file__).resolve().parents[3] / "eval" / "fixtures"
-DEFAULT_CORPUS = FIXTURE_ROOT / "corpus.yaml"
+from projectmind.evaluation.paths import eval_dir
 
 RECORD_TYPES = frozenset({"decision", "failure", "experiment", "research", "reversal"})
 
@@ -94,8 +93,9 @@ class FixtureCorpus(BaseModel):
         return self
 
     @classmethod
-    def load(cls, path: str | Path = DEFAULT_CORPUS) -> FixtureCorpus:
-        raw: Any = yaml.safe_load(Path(path).read_text(encoding="utf-8"))
+    def load(cls, path: str | Path | None = None) -> FixtureCorpus:
+        source = Path(path) if path is not None else eval_dir() / "fixtures" / "corpus.yaml"
+        raw: Any = yaml.safe_load(source.read_text(encoding="utf-8"))
         return cls.model_validate(raw)
 
     def record(self, record_id: str) -> FixtureRecord:

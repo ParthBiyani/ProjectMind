@@ -26,6 +26,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
+from typing import Any
 from uuid import UUID
 
 from projectmind.config import Settings, get_settings
@@ -105,6 +106,54 @@ class Fusion:
     sources: set[str] = field(default_factory=set)
 
 
+def _candidate_trace(
+    everything: Sequence[ScoredCandidate],
+    kept: Sequence[ScoredCandidate],
+    fused: dict[UUID, Fusion],
+    *,
+    keep_cut: int = 10,
+) -> list[dict[str, Any]]:
+    """What was considered and why each candidate was served or cut.
+
+    Every served candidate is listed, plus the best few that were cut: those
+    near-misses are what tells you whether a floor is set too high.
+    """
+    served = {item.record.id for item in kept}
+    floor = kept[0].score * RELATIVE_FLOOR if kept else None
+    rows: list[dict[str, Any]] = []
+    cut = 0
+    for item in everything:
+        was_served = item.record.id in served
+        if not was_served:
+            if cut >= keep_cut:
+                continue
+            cut += 1
+        detail = fused.get(item.record.id, Fusion())
+        if was_served:
+            outcome = "served"
+        elif item.score < MINIMUM_SCORE:
+            outcome = "cut: below minimum score"
+        elif floor is not None and item.score < floor:
+            outcome = "cut: below relative floor"
+        else:
+            outcome = "cut: over limit"
+        rows.append(
+            {
+                "stage": "candidate",
+                "record": str(item.record.id),
+                "project": item.project_key,
+                "what": item.record.what[:120],
+                "lexical": round(detail.lexical, 4),
+                "vector": round(detail.vector, 4),
+                "relevance": round(detail.relevance, 4),
+                "recency": item.recency,
+                "score": round(item.score, 4),
+                "outcome": outcome,
+            }
+        )
+    return rows
+
+
 class HybridRetriever:
     """BM25 and vector search, fused, ranked and trimmed."""
 
@@ -136,8 +185,11 @@ class HybridRetriever:
         fingerprint: Fingerprint,
         limit: int,
         now: datetime | None = None,
+        trace: list[dict[str, Any]] | None = None,
     ) -> list[ServedRecord]:
         pool = self._pool(decision)
+        if trace is not None:
+            trace.append({"stage": "pool", "size": len(pool)})
         if not pool:
             return []
 
@@ -166,7 +218,7 @@ class HybridRetriever:
         ]
 
         weights = self._weights_for(decision)
-        ranked = rank(
+        everything = rank(
             candidates,
             caller_project_id=caller_id,
             caller_fingerprint=fingerprint,
@@ -176,9 +228,11 @@ class HybridRetriever:
                 candidate.record.id: fused[candidate.record.id].relevance
                 for candidate in candidates
             },
-            minimum_score=MINIMUM_SCORE,
         )
+        ranked = [item for item in everything if item.score >= MINIMUM_SCORE]
         kept = self._cut(ranked, limit)
+        if trace is not None:
+            trace.extend(_candidate_trace(everything, kept, fused))
 
         log.debug(
             "hybrid retrieval",

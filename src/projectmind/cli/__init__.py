@@ -8,8 +8,6 @@ describing the same system.
 from __future__ import annotations
 
 import json
-import os
-import shutil
 import sys
 from datetime import timedelta
 from pathlib import Path
@@ -20,6 +18,7 @@ from projectmind import __version__
 from projectmind.cli import (
     eval_cmd,
     fingerprint_cmd,
+    history_cmd,
     hook_cmd,
     ingest_cmd,
     install_cmd,
@@ -40,6 +39,7 @@ app = typer.Typer(
 app.add_typer(profile_cmd.app, name="profile")
 app.add_typer(install_cmd.app, name="install")
 app.add_typer(hook_cmd.app, name="hook")
+app.add_typer(history_cmd.app, name="history")
 app.add_typer(fingerprint_cmd.app, name="fingerprint")
 app.add_typer(eval_cmd.app, name="eval")
 app.add_typer(ingest_cmd.app, name="ingest")
@@ -100,6 +100,7 @@ def context(
             project,
             ignore_profile=ignore_profile,
             log_bundle=not quiet,
+            source="cli",
         )
 
     if as_json:
@@ -174,68 +175,31 @@ def report(days: int = typer.Option(30, help="Window in days.")) -> None:
 
 @app.command()
 def doctor() -> None:
-    """Check that everything this machine needs is actually in place."""
-    settings = get_settings()
-    checks: list[tuple[str, bool, str]] = []
+    """Check that everything this machine needs is actually in place.
 
-    checks.append(("home directory", settings.home.exists(), str(settings.home)))
+    Each line looks at the thing it names. The hook line runs the hook the way
+    your agent would and reports what came back.
+    """
+    from projectmind.cli.diagnostics import Status, run_all
 
-    try:
-        store = open_store(settings)
-        version = store.migrate()
-        records = store.count_records()
-        statements = len(store.list_statements())
-        store.close()
-        checks.append(("storage", True, f"{settings.describe_backend()} at schema v{version}"))
-        checks.append(
-            ("memory", statements > 0, f"{statements} active statements, {records} records")
-        )
-    except Exception as exc:  # doctor reports failures instead of raising them
-        checks.append(("storage", False, str(exc)))
-
-    try:
-        import mcp  # noqa: F401
-
-        checks.append(("mcp sdk", True, "installed"))
-    except ModuleNotFoundError:
-        checks.append(("mcp sdk", False, "pip install 'projectmind[mcp]'"))
-
-    from projectmind.storage.embeddings import build_embedder
-
-    embedder = build_embedder(settings)
-    checks.append(
-        (
-            "embeddings",
-            True,
-            f"{embedder.name}, {embedder.dimensions} dimensions"
-            + ("" if embedder.name != "hashing" else " (offline fallback)"),
-        )
-    )
-
-    checks.append(
-        (
-            "llm extraction",
-            settings.has_llm,
-            "enabled" if settings.has_llm else "off — heuristics only, set ANTHROPIC_API_KEY",
-        )
-    )
-    checks.append(("git", shutil.which("git") is not None, shutil.which("git") or "not found"))
-
-    hook = _claude_settings_path()
-    checks.append(
-        ("claude code", hook.exists(), str(hook) if hook.exists() else "no settings.json found")
-    )
-
+    findings = run_all(get_settings())
+    marks = {
+        Status.OK: "[green]ok[/green]",
+        Status.WARN: "[yellow]--[/yellow]",
+        Status.FAIL: "[red]FAIL[/red]",
+    }
     rendered = table("check", "", "detail")
-    for name, passed, detail in checks:
-        mark = "[green]ok[/green]" if passed else "[yellow]--[/yellow]"
-        rendered.add_row(name, mark, detail)
+    for finding in findings:
+        rendered.add_row(finding.name, marks[finding.status], finding.detail)
     console.print(rendered)
 
-    blocking = [name for name, passed, _ in checks if not passed and name in {"storage"}]
-    if blocking:
-        fail(f"blocking problems: {', '.join(blocking)}")
+    failed = [item.name for item in findings if item.status is Status.FAIL]
+    if failed:
+        fail(f"problems: {', '.join(failed)}")
         raise typer.Exit(code=1)
+    pending = sum(1 for item in findings if item.status is Status.WARN)
+    if pending:
+        note(f"{pending} item(s) need attention but nothing is broken")
 
 
 @app.command("mcp")
@@ -255,11 +219,6 @@ def export_memory(
         payload = [statement.model_dump(mode="json") for statement in memory.profile.all()]
     destination.write_text(json.dumps(payload, indent=2), encoding="utf-8")
     ok(f"wrote {len(payload)} statements to {destination}")
-
-
-def _claude_settings_path() -> Path:
-    base = os.environ.get("CLAUDE_CONFIG_DIR")
-    return Path(base or Path.home() / ".claude") / "settings.json"
 
 
 def main() -> None:

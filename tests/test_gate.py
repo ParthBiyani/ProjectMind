@@ -260,7 +260,7 @@ def live_report() -> ScoreReport:
     """One live run, shared by the Phase 2 exit assertions."""
     eval_set = EvalSet.from_yaml(EVAL_PATH)
     with tempfile.TemporaryDirectory() as tmp, live_service(Path(tmp)) as service:
-        return run(eval_set, LiveSystem(service))
+        return run(eval_set, LiveSystem(service, as_of=eval_set.as_of))
 
 
 class TestPhaseTwoExitCriterion:

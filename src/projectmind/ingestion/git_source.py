@@ -128,10 +128,17 @@ class GitError(RuntimeError):
     """Raised only by explicit callers; the source itself degrades quietly."""
 
 
-def _run(root: Path, *args: str) -> str | None:
+def _git(root: Path, *args: str) -> tuple[int, str, str]:
+    """Run one read-only git command. Returns (exit code, stdout, stderr).
+
+    `safe.directory=*` is passed for this single invocation only. Repositories
+    created under another Windows account (or another user on a shared disk)
+    are refused by git's ownership check, which would otherwise turn a readable
+    history into a silent skip. Nothing is written to any git config.
+    """
     try:
         result = subprocess.run(
-            ["git", "-C", str(root), *args],
+            ["git", "-c", "safe.directory=*", "-C", str(root), *args],
             capture_output=True,
             text=True,
             encoding="utf-8",
@@ -141,14 +148,19 @@ def _run(root: Path, *args: str) -> str | None:
         )
     except (OSError, subprocess.SubprocessError) as exc:
         log.warning("git failed", extra={"root": str(root), "error": str(exc)})
-        return None
-    if result.returncode != 0:
-        log.debug(
+        return 127, "", str(exc)
+    return result.returncode, result.stdout, result.stderr
+
+
+def _run(root: Path, *args: str) -> str | None:
+    code, stdout, stderr = _git(root, *args)
+    if code != 0:
+        log.warning(
             "git returned non-zero",
-            extra={"root": str(root), "args": args, "stderr": result.stderr[:200]},
+            extra={"root": str(root), "git_args": list(args), "stderr": stderr.strip()[:200]},
         )
         return None
-    return result.stdout
+    return stdout
 
 
 class LocalGitSource:
@@ -174,6 +186,20 @@ class LocalGitSource:
         return (self.root / ".git").exists() and _run(
             self.root, "rev-parse", "--git-dir"
         ) is not None
+
+    def unreadable_reason(self) -> str | None:
+        """Why git refuses this directory, or None if it is readable.
+
+        A `.git` entry that git will not open is reported with git's own words
+        instead of being passed off as "not a repository".
+        """
+        if not (self.root / ".git").exists():
+            return "not a git repository"
+        code, _, stderr = _git(self.root, "rev-parse", "--git-dir")
+        if code == 0:
+            return None
+        lines = [line.strip() for line in stderr.splitlines() if line.strip()]
+        return f"git could not read it: {lines[0]}" if lines else "git could not read it"
 
     def remote(self) -> str | None:
         output = _run(self.root, "remote", "get-url", "origin")
