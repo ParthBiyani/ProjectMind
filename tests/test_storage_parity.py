@@ -34,7 +34,13 @@ from projectmind.models import (
     StatementStatus,
 )
 from projectmind.storage import RecordFilter, StatementFilter, Store
-from projectmind.storage.base import BundleLogEntry, HistoryFilter
+from projectmind.storage.base import (
+    BundleLogEntry,
+    ChunkRecord,
+    DocumentRecord,
+    HistoryFilter,
+    search_terms,
+)
 from projectmind.storage.sqlite_store import SqliteStore
 
 PG_URL_ENV = "PROJECTMIND_TEST_DB_URL"
@@ -129,8 +135,8 @@ def make_statement(**overrides: object) -> ProfileStatement:
 
 class TestMigrations:
     def test_migrate_is_idempotent(self, store: Store) -> None:
-        assert store.migrate() == 2
-        assert store.migrate() == 2
+        assert store.migrate() == 3
+        assert store.migrate() == 3
 
 
 class TestProjects:
@@ -545,3 +551,125 @@ class TestInteractionHistory:
         store.log_bundle(self._entry(created_at=now))
         assert store.purge_bundles(now - timedelta(days=30)) == 1
         assert len(store.find_bundles(HistoryFilter())) == 1
+
+
+def make_document(uri: str = "D:/p/kairos/CLAUDE.md", **overrides: object) -> DocumentRecord:
+    now = datetime.now(UTC)
+    defaults: dict[str, object] = {
+        "id": uuid4(),
+        "uri": uri,
+        "source_type": "doc",
+        "root": "D:/p",
+        "project_key": "kairos",
+        "title": "CLAUDE.md",
+        "content_hash": "h1",
+        "mtime": now,
+        "indexed_at": now,
+    }
+    defaults.update(overrides)
+    return DocumentRecord(**defaults)  # type: ignore[arg-type]
+
+
+def make_chunks(document: DocumentRecord, *texts: str) -> list[ChunkRecord]:
+    return [
+        ChunkRecord(
+            id=uuid4(),
+            document_id=document.id,
+            ordinal=index,
+            text=text,
+            heading=f"Section {index}",
+            start_line=index * 10 + 1,
+            end_line=index * 10 + 9,
+        )
+        for index, text in enumerate(texts)
+    ]
+
+
+class TestKnowledgeBase:
+    def index(self, store: Store, uri: str = "D:/p/kairos/CLAUDE.md", **kwargs: object) -> tuple:
+        document = make_document(uri, **kwargs)
+        chunks = make_chunks(
+            document,
+            "The metric is dice plus boundary F1 on 25 train volumes.",
+            "Walk-forward validation beat k-fold on the time series.",
+            "Nothing about the topic here at all.",
+        )
+        store.replace_document(document, chunks)
+        return document, chunks
+
+    def test_search_term_cleaning_drops_syntax_and_short_noise(self) -> None:
+        assert search_terms(['"Walk-forward"', "a", "AND*", "dice,"]) == [
+            "walkforward",
+            "and",
+            "dice",
+        ]
+
+    def test_a_document_roundtrips_with_its_chunks(self, store: Store) -> None:
+        document, chunks = self.index(store)
+        loaded = store.get_document(document.uri)
+        assert loaded is not None
+        assert loaded.chunk_count == 3
+        assert store.count_chunks() == 3
+        assert store.count_documents() == 1
+        hit = store.get_chunk(chunks[1].id)
+        assert hit is not None
+        assert hit.chunk.start_line == 11
+        assert hit.chunk.end_line == 19
+        assert hit.document.uri == document.uri
+
+    def test_search_finds_the_chunk_that_says_it(self, store: Store) -> None:
+        _, chunks = self.index(store)
+        hits = store.search_chunks(["dice"])
+        assert [hit.chunk.id for hit in hits] == [chunks[0].id]
+        assert hits[0].rank > 0
+
+    def test_search_ranks_the_chunk_with_more_of_the_terms_first(self, store: Store) -> None:
+        _, chunks = self.index(store)
+        hits = store.search_chunks(["dice", "metric", "volumes", "topic"])
+        assert hits[0].chunk.id == chunks[0].id
+        assert {hit.chunk.id for hit in hits} == {chunks[0].id, chunks[2].id}
+
+    def test_a_term_the_corpus_never_says_finds_nothing(self, store: Store) -> None:
+        self.index(store)
+        assert store.search_chunks(["kubernetes"]) == []
+
+    def test_user_text_cannot_be_parsed_as_query_syntax(self, store: Store) -> None:
+        self.index(store)
+        assert store.search_chunks(['dice" OR (', "NEAR(", "*", "-"]) is not None
+
+    def test_filters_narrow_by_project_and_source_type(self, store: Store) -> None:
+        self.index(store, "D:/p/kairos/CLAUDE.md", project_key="kairos")
+        self.index(store, "D:/p/sprout/NOTES.md", project_key="sprout", source_type="notebook")
+        assert len(store.search_chunks(["dice"])) == 2
+        assert len(store.search_chunks(["dice"], project_key="sprout")) == 1
+        assert len(store.search_chunks(["dice"], source_types=["doc"])) == 1
+        assert store.search_chunks(["dice"], project_key="nobody") == []
+
+    def test_term_document_frequency(self, store: Store) -> None:
+        self.index(store)
+        frequency = store.term_document_frequency(["dice", "topic", "kubernetes"])
+        assert frequency == {"dice": 1, "topic": 1, "kubernetes": 0}
+
+    def test_replacing_a_document_swaps_its_chunks(self, store: Store) -> None:
+        document, _ = self.index(store)
+        changed = make_document(document.uri, content_hash="h2")
+        store.replace_document(changed, make_chunks(changed, "Now it talks about kubernetes."))
+        assert store.count_chunks() == 1
+        assert store.search_chunks(["dice"]) == []
+        assert len(store.search_chunks(["kubernetes"])) == 1
+        reloaded = store.get_document(document.uri)
+        assert reloaded is not None
+        assert reloaded.content_hash == "h2"
+
+    def test_deleting_a_document_removes_its_chunks_from_search(self, store: Store) -> None:
+        document, _ = self.index(store)
+        assert store.delete_document(document.uri) is True
+        assert store.delete_document(document.uri) is False
+        assert store.count_chunks() == 0
+        assert store.search_chunks(["dice"]) == []
+
+    def test_document_hashes_are_per_root(self, store: Store) -> None:
+        self.index(store, "D:/p/a.md", root="D:/p", content_hash="aa")
+        self.index(store, "D:/q/b.md", root="D:/q", content_hash="bb")
+        assert store.document_hashes("D:/p") == {"D:/p/a.md": "aa"}
+        assert store.count_documents("D:/q") == 1
