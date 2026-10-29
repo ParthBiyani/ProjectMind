@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import pytest
@@ -8,6 +9,11 @@ from projectmind.evaluation import EvalSet
 from projectmind.evaluation.fixtures import FixtureCorpus
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+
+# Thresholds are calibrated per embedder, so tests must not depend on which
+# optional extras happen to be installed. Set at import, before any
+# module-scoped fixture builds an embedder.
+os.environ["PROJECTMIND_EMBEDDING_PROVIDER"] = "hashing"
 
 
 @pytest.fixture(scope="session")

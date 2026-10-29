@@ -15,6 +15,7 @@
 
 name: projectmind-eval
 version: "1.0"
+as_of: 2026-07-15
 description: >-
   Forty queries across implement, debug, refactor, architect, explore and
   trivial task types, issued from fourteen fixture projects. Ten expect no

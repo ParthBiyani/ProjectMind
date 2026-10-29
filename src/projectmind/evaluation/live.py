@@ -17,7 +17,7 @@ from __future__ import annotations
 import uuid as _uuid
 from collections.abc import Iterator
 from contextlib import contextmanager
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from pathlib import Path
 from uuid import UUID
 
@@ -133,8 +133,17 @@ class LiveSystem:
 
     name = "live"
 
-    def __init__(self, service: MemoryService, corpus: FixtureCorpus | None = None) -> None:
+    def __init__(
+        self,
+        service: MemoryService,
+        corpus: FixtureCorpus | None = None,
+        *,
+        as_of: date | None = None,
+    ) -> None:
         self.service = service
+        self.now = (
+            datetime(as_of.year, as_of.month, as_of.day, tzinfo=UTC) if as_of is not None else None
+        )
         self.corpus = corpus or FixtureCorpus.load()
         self._roots: dict[str, str] = {}
         self._by_uuid = {fixture_uuid(record.id): record.id for record in self.corpus.records}
@@ -144,6 +153,7 @@ class LiveSystem:
             query.prompt,
             self._root_for(query.project),
             log_bundle=False,
+            now=self.now,
         )
         return RetrievalResult(
             query_id=query.id,

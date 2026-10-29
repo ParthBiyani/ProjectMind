@@ -51,6 +51,7 @@ class EpisodicRetriever(Protocol):
         project: Project | None,
         fingerprint: Fingerprint,
         limit: int,
+        now: datetime | None = None,
     ) -> Sequence[ServedRecord]: ...
 
 
@@ -178,6 +179,7 @@ class MemoryService:
                 project=project.record,
                 fingerprint=project.fingerprint,
                 limit=self.settings.max_episodic_records * 3,
+                now=moment,
             )
             episodic = budgeting.fit_records(
                 candidates,

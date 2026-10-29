@@ -9,6 +9,7 @@ implementation detail behind it.
 
 from __future__ import annotations
 
+from datetime import date
 from enum import StrEnum
 from pathlib import Path
 from typing import Any, Protocol
@@ -87,6 +88,10 @@ class EvalSet(BaseModel):
     name: str
     version: str
     description: str = ""
+    #: The date the set is scored "as of". Recency decays with age, so scoring
+    #: against the wall clock makes the same set drift on its own; pinning the
+    #: clock makes a result reproducible years later.
+    as_of: date | None = None
     queries: tuple[EvalQuery, ...]
 
     @model_validator(mode="after")

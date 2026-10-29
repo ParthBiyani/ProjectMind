@@ -41,7 +41,7 @@ def run_eval(
         report = run(eval_set, OracleSystem())
     else:
         with tempfile.TemporaryDirectory() as tmp, live_service(Path(tmp)) as service:
-            report = run(eval_set, LiveSystem(service))
+            report = run(eval_set, LiveSystem(service, as_of=eval_set.as_of))
 
     rendered = table(
         "metric", "value", "target", "", title=f"{report.system} · {len(eval_set)} queries"
