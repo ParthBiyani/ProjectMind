@@ -161,8 +161,10 @@ def search(
             if hit.chunk.start_line
             else hit.chunk.locator
         )
+        # soft_wrap: a path folded mid-word cannot be copied or opened.
         console.print(
-            f"[bold]{hit.document.project_key}[/bold] {hit.document.uri} [dim]{where}[/dim]"
+            f"[bold]{hit.document.project_key}[/bold] {hit.document.uri} [dim]{where}[/dim]",
+            soft_wrap=True,
         )
         console.print(hit.chunk.text[:400], markup=False)
         console.print()
