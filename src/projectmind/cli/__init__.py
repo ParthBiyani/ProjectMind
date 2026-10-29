@@ -204,6 +204,31 @@ def doctor() -> None:
         note(f"{pending} item(s) need attention but nothing is broken")
 
 
+@app.command()
+def sync(
+    git: bool = typer.Option(True, help="Read new git commits."),
+    files: bool = typer.Option(True, help="Re-scan source folders."),
+) -> None:
+    """Bring the knowledge base up to date with every configured source.
+
+    Reads only what changed since the last pass. Runs at below-normal priority.
+    """
+    from projectmind.sources.priority import lower_priority
+    from projectmind.sync import sync as run_sync
+
+    lower_priority()
+    settings = get_settings()
+    with service() as memory:
+        report = run_sync(memory.store, settings, git=git, files=files)
+        chunks = memory.store.count_chunks()
+        records = memory.store.count_records()
+    ok(report.summary())
+    note(f"{records} history records and {chunks} source passages in memory")
+    problems = [scan for scan in report.scans if scan.error]
+    for scan in problems:
+        fail(scan.summary())
+
+
 @app.command("mcp")
 def mcp_server() -> None:
     """Run the MCP server on stdio. Normally started by the agent, not by hand."""
