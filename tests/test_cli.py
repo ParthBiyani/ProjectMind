@@ -227,7 +227,9 @@ class TestInstaller:
         assert "projectmind" in json.dumps(hooks["UserPromptSubmit"])
         assert "projectmind" in json.dumps(hooks["SessionStart"])
         servers = json.loads(mcp_path.read_text(encoding="utf-8"))["mcpServers"]
-        assert servers["projectmind"]["args"] == ["-m", "projectmind.cli", "mcp"]
+        assert servers["projectmind"]["args"] == ["-I", "-m", "projectmind.cli", "mcp"]
+        command = hooks["UserPromptSubmit"][0]["hooks"][0]["command"]
+        assert "-I -m projectmind.hook_entry user-prompt-submit" in command
 
     def test_existing_hooks_from_other_tools_are_preserved(
         self, redirect_agent_config: tuple[Path, Path]

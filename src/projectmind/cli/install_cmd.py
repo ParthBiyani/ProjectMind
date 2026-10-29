@@ -47,14 +47,14 @@ class Change:
     applied: bool
 
 
-def _launcher() -> str:
-    """How to invoke this installation, independent of PATH.
+def _hook_launcher() -> str:
+    """The hook command: isolated mode, and the slim entry that skips the CLI.
 
-    A console script only works if its directory happens to be on PATH, which
-    it often is not inside an editor's hook subprocess. Going through the
-    interpreter that is running right now always works.
+    `-I` drops the working directory from the import path. A hook runs with the
+    user's project as its cwd, and a project that happens to contain `yaml.py`
+    or a `typer/` folder would otherwise shadow the real module.
     """
-    return f'"{sys.executable}" -m projectmind.cli'
+    return f'"{sys.executable}" -I -m projectmind.hook_entry'
 
 
 def _claude_dir() -> Path:
@@ -154,10 +154,9 @@ def claude_code(
 def _apply_hooks(path: Path, *, remove: bool, dry_run: bool) -> list[Change]:
     config = _load_json(path)
     hook_config: dict[str, Any] = dict(config.get("hooks") or {})
-    launcher = _launcher()
     wanted = {
-        "UserPromptSubmit": f"{launcher} hook user-prompt-submit",
-        "SessionStart": f"{launcher} hook session-start",
+        "UserPromptSubmit": f"{_hook_launcher()} user-prompt-submit",
+        "SessionStart": f"{_hook_launcher()} session-start",
     }
 
     changes: list[Change] = []
@@ -205,7 +204,7 @@ def _apply_mcp(path: Path, *, remove: bool, dry_run: bool) -> list[Change]:
         servers[MARKER] = {
             "type": "stdio",
             "command": sys.executable,
-            "args": ["-m", "projectmind.cli", "mcp"],
+            "args": ["-I", "-m", "projectmind.cli", "mcp"],
             "env": {},
         }
         change = Change(path, "registered the mcp server", not dry_run)
