@@ -20,6 +20,7 @@ from projectmind import __version__
 from projectmind.cli import (
     eval_cmd,
     fingerprint_cmd,
+    history_cmd,
     hook_cmd,
     ingest_cmd,
     install_cmd,
@@ -40,6 +41,7 @@ app = typer.Typer(
 app.add_typer(profile_cmd.app, name="profile")
 app.add_typer(install_cmd.app, name="install")
 app.add_typer(hook_cmd.app, name="hook")
+app.add_typer(history_cmd.app, name="history")
 app.add_typer(fingerprint_cmd.app, name="fingerprint")
 app.add_typer(eval_cmd.app, name="eval")
 app.add_typer(ingest_cmd.app, name="ingest")
@@ -100,6 +102,7 @@ def context(
             project,
             ignore_profile=ignore_profile,
             log_bundle=not quiet,
+            source="cli",
         )
 
     if as_json:

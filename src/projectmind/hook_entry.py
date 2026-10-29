@@ -22,8 +22,10 @@ from __future__ import annotations
 
 import json
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+from uuid import UUID
 
 from projectmind.logging import configure
 
@@ -70,26 +72,43 @@ def user_prompt_submit(
     event: dict[str, Any], *, prompt: str | None = None, project: Path | None = None
 ) -> bytes:
     """The reply bytes for one prompt. Empty when there is nothing to inject."""
+    return prepare_reply(event, prompt=prompt, project=project).payload
+
+
+@dataclass(frozen=True, slots=True)
+class Reply:
+    """What the hook will write, and which logged bundle it belongs to."""
+
+    payload: bytes = b""
+    bundle_id: UUID | None = None
+
+
+def prepare_reply(
+    event: dict[str, Any], *, prompt: str | None = None, project: Path | None = None
+) -> Reply:
     text = prompt or str(event.get("prompt") or "")
     if not text.strip():
-        return b""
+        return Reply()
     cwd = project or Path(str(event.get("cwd") or Path.cwd()))
+    session = event.get("session_id")
 
     try:
         from projectmind.service import MemoryService
 
         with MemoryService.open(get_settings()) as memory:
-            bundle = memory.get_context(text, cwd)
+            bundle = memory.get_context(
+                text, cwd, source="hook", session_id=str(session) if session else None
+            )
     except Exception as exc:  # a broken memory layer must not break the session
         log.warning("hook failed, serving nothing", extra={"error": str(exc)})
-        return b""
+        return Reply()
 
     if bundle.is_empty:
         log.info(
             "hook served nothing",
             extra={"project": bundle.project_key, "reason": bundle.gate_reason},
         )
-        return b""
+        return Reply()
 
     log.info(
         "hook served context",
@@ -101,7 +120,19 @@ def user_prompt_submit(
             "episodic": len(bundle.episodic),
         },
     )
-    return render_reply(f"{bundle.render()}\n\n{bundle_marker(bundle.bundle_id)}")
+    payload = render_reply(f"{bundle.render()}\n\n{bundle_marker(bundle.bundle_id)}")
+    return Reply(payload=payload, bundle_id=bundle.bundle_id)
+
+
+def confirm_delivery(bundle_id: UUID, delivered: bool) -> None:
+    """Record that the written reply did (or did not) reach the agent."""
+    try:
+        from projectmind.service import MemoryService
+
+        with MemoryService.open(get_settings()) as memory:
+            memory.mark_delivered(bundle_id, delivered)
+    except Exception as exc:
+        log.warning("could not confirm delivery", extra={"error": str(exc)})
 
 
 def session_start(event: dict[str, Any], *, project: Path | None = None) -> None:
@@ -128,10 +159,16 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         if command == "user-prompt-submit":
-            reply = user_prompt_submit(event)
-            if reply:
-                sys.stdout.buffer.write(reply)
-                sys.stdout.buffer.flush()
+            reply = prepare_reply(event)
+            if reply.payload:
+                delivered = False
+                try:
+                    sys.stdout.buffer.write(reply.payload)
+                    sys.stdout.buffer.flush()
+                    delivered = True
+                finally:
+                    if reply.bundle_id is not None:
+                        confirm_delivery(reply.bundle_id, delivered)
         elif command == "session-start":
             session_start(event)
     except Exception as exc:  # last line of defence: the editor must never see this

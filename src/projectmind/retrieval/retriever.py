@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from datetime import datetime
+from typing import Any
 from uuid import UUID
 
 from projectmind.config import Settings, get_settings
@@ -50,6 +51,7 @@ class BaselineRetriever:
         fingerprint: Fingerprint,
         limit: int,
         now: datetime | None = None,
+        trace: list[dict[str, Any]] | None = None,
     ) -> list[ServedRecord]:
         """Candidates the gate allows, ranked, trimmed to `limit`."""
         candidates = self._candidates(decision)

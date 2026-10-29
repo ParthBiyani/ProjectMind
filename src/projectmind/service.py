@@ -18,9 +18,10 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Protocol
-from uuid import UUID
+from typing import Any, Protocol
+from uuid import UUID, uuid4
 
+from projectmind import __version__
 from projectmind import entities as entity_matching
 from projectmind.config import Settings, get_settings
 from projectmind.fingerprint.cache import FingerprintCache
@@ -52,6 +53,7 @@ class EpisodicRetriever(Protocol):
         fingerprint: Fingerprint,
         limit: int,
         now: datetime | None = None,
+        trace: list[dict[str, Any]] | None = None,
     ) -> Sequence[ServedRecord]: ...
 
 
@@ -115,6 +117,8 @@ class MemoryService:
         max_tokens: int | None = None,
         now: datetime | None = None,
         log_bundle: bool = True,
+        source: str = "api",
+        session_id: str | None = None,
     ) -> ContextBundle:
         """Return the smallest bundle that improves the next action."""
         started = time.perf_counter()
@@ -129,18 +133,27 @@ class MemoryService:
             settings=self.settings,
         )
 
+        trace: dict[str, Any] = {}
         bundle = self._assemble(
             decision,
             project,
             moment,
             ignore_profile=ignore_profile,
             max_tokens=max_tokens,
+            trace=trace,
         )
         bundle = bundle.model_copy(
             update={"latency_ms": round((time.perf_counter() - started) * 1000.0, 3)}
         )
         if log_bundle:
-            self._log(bundle, prompt)
+            self._log(
+                bundle,
+                prompt,
+                source=source,
+                session_id=session_id,
+                cwd=str(project.root) if project.root else None,
+                trace=trace,
+            )
         return bundle
 
     def _assemble(
@@ -151,8 +164,19 @@ class MemoryService:
         *,
         ignore_profile: bool,
         max_tokens: int | None,
+        trace: dict[str, Any],
     ) -> ContextBundle:
         analysis = decision.analysis
+        trace["decision"] = {
+            "task_type": str(analysis.task_type),
+            "entities": list(analysis.entities),
+            "inject_profile": decision.inject_profile,
+            "inject_episodic": decision.inject_episodic,
+            "record_types": [str(item) for item in decision.record_types],
+            "entity_filter": list(decision.entity_filter),
+            "cross_project_boost": decision.cross_project_boost,
+            "reason": describe(decision),
+        }
 
         if decision.skips_everything:
             return ContextBundle(
@@ -174,13 +198,16 @@ class MemoryService:
 
         episodic = budgeting.BudgetReport((), 0)
         if decision.inject_episodic and self.retriever is not None:
+            candidate_trace: list[dict[str, Any]] = []
             candidates = self.retriever.retrieve(
                 decision,
                 project=project.record,
                 fingerprint=project.fingerprint,
                 limit=self.settings.max_episodic_records * 3,
                 now=moment,
+                trace=candidate_trace,
             )
+            trace["retrieval"] = candidate_trace
             episodic = budgeting.fit_records(
                 candidates,
                 token_cap=self.settings.episodic_token_cap,
@@ -308,7 +335,34 @@ class MemoryService:
             limit=limit,
         )
 
-    def _log(self, bundle: ContextBundle, prompt: str) -> None:
+    def _history_mode(self, project_name: str | None) -> str:
+        """How much of this interaction may be kept.
+
+        An excluded project is held to `minimal` whatever the setting says: its
+        prompts are never stored as text.
+        """
+        mode = self.settings.history
+        if mode == "full" and project_name:
+            from projectmind.ingestion.github_source import is_excluded
+
+            if is_excluded(project_name, self.settings.excluded_repos):
+                return "minimal"
+        return mode
+
+    def _log(
+        self,
+        bundle: ContextBundle,
+        prompt: str,
+        *,
+        source: str = "api",
+        session_id: str | None = None,
+        cwd: str | None = None,
+        trace: dict[str, Any] | None = None,
+    ) -> None:
+        mode = self._history_mode(Path(cwd).name if cwd else bundle.project_key)
+        if mode == "off":
+            return
+        full = mode == "full"
         try:
             self.store.log_bundle(
                 BundleLogEntry(
@@ -328,11 +382,69 @@ class MemoryService:
                     gate_reason=bundle.gate_reason,
                     latency_ms=bundle.latency_ms,
                     injected=not bundle.is_empty,
+                    source=source,
+                    session_id=session_id,
+                    cwd=cwd if full else None,
+                    prompt_text=prompt if full else None,
+                    rendered_text=bundle.render() if full else None,
+                    trace=(trace or {}) if full else {},
+                    embedder=getattr(getattr(self.retriever, "embedder", None), "name", None),
+                    version=__version__,
                 )
             )
         except Exception as exc:
             # Telemetry is never allowed to break a retrieval.
             log.warning("could not log bundle", extra={"error": str(exc)})
+
+    def record_search(
+        self,
+        query: str,
+        results: Sequence[ServedRecord],
+        *,
+        project_key: str | None,
+        source: str,
+        latency_ms: float = 0.0,
+    ) -> None:
+        """Log a deliberate `search_memory` question and what it returned."""
+        mode = self._history_mode(project_key)
+        if mode == "off":
+            return
+        full = mode == "full"
+        try:
+            self.store.log_bundle(
+                BundleLogEntry(
+                    bundle_id=uuid4(),
+                    created_at=utcnow(),
+                    project_key=project_key,
+                    task_type="search",
+                    prompt_hash=hash_prompt(query),
+                    prompt_words=len(query.split()),
+                    episodic_ids=tuple(item.id for item in results),
+                    cross_project_ids=tuple(item.id for item in results if item.cross_project),
+                    gate_reason="direct search",
+                    latency_ms=latency_ms,
+                    injected=bool(results),
+                    source=source,
+                    prompt_text=query if full else None,
+                    rendered_text="\n\n".join(item.render() for item in results) if full else None,
+                    embedder=getattr(getattr(self.retriever, "embedder", None), "name", None),
+                    version=__version__,
+                )
+            )
+        except Exception as exc:
+            log.warning("could not log search", extra={"error": str(exc)})
+
+    def mark_delivered(self, bundle_id: UUID, delivered: bool) -> None:
+        """Record whether the text actually reached the agent.
+
+        A bundle is logged when it is assembled, which is before the hook
+        writes it. This is the second half: it is how `report` avoids counting
+        an injection the model never saw.
+        """
+        try:
+            self.store.mark_delivered(bundle_id, delivered)
+        except Exception as exc:
+            log.warning("could not mark delivery", extra={"error": str(exc)})
 
 
 def hash_prompt(prompt: str) -> str:

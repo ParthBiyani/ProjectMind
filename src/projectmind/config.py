@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import functools
 from pathlib import Path
+from typing import Literal
 
 from pydantic import AliasChoices, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -101,6 +102,16 @@ class Settings(BaseSettings):
     embedding_dimensions: int = 384
 
     log_level: str = "INFO"
+
+    history: Literal["full", "minimal", "off"] = Field(
+        default="full",
+        description=(
+            "Interaction history. `full` keeps each prompt, the exact text served and "
+            "the retrieval trace, locally, so answers can be audited and replayed. "
+            "`minimal` keeps hashed metadata only. `off` keeps nothing. Projects "
+            "matching PROJECTMIND_EXCLUDED_REPOS are always treated as `minimal`."
+        ),
+    )
 
     @field_validator("home", mode="after")
     @classmethod
