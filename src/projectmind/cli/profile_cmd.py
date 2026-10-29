@@ -5,13 +5,15 @@ from __future__ import annotations
 from pathlib import Path
 from uuid import UUID
 
+import click
 import typer
 from rich.panel import Panel
 
 from projectmind.cli._common import console, fail, note, ok, service, table
-from projectmind.models import Category, StatementStatus
+from projectmind.models import Category, Origin, ProfileStatement, StatementStatus, utcnow
 from projectmind.profile.lifecycle import TransitionError
 from projectmind.profile.seed import SEED_PATH, seed_profile
+from projectmind.service import MemoryService
 
 app = typer.Typer(help="Inspect and curate profile memory.", no_args_is_help=True)
 
@@ -114,7 +116,17 @@ def review(
                     title_align="left",
                 )
             )
-            choice = typer.prompt("  [a]pprove / [d]rop / [s]kip / [q]uit", default="s").lower()[:1]
+            choice = typer.prompt(
+                "  [a]pprove / [e]dit / [d]rop / [s]kip / [q]uit", default="s"
+            ).lower()[:1]
+            if choice == "e":
+                reworded = click.edit(statement.statement)
+                if reworded and reworded.strip():
+                    statement = statement.model_copy(
+                        update={"statement": " ".join(reworded.split())}
+                    )
+                    memory.profile.add(statement)
+                choice = typer.prompt("  [a]pprove / [d]rop / [s]kip", default="a").lower()[:1]
             if choice == "a":
                 try:
                     memory.profile.activate(statement.id)
@@ -200,3 +212,130 @@ def sweep() -> None:
         )
         if result.due_for_review:
             note(f"{len(result.due_for_review)} statements are due for re-confirmation")
+
+
+# --------------------------------------------------------------------------- #
+# Authoring: the profile is written by a human, so it has to be easy to write.
+# --------------------------------------------------------------------------- #
+
+HUMAN_CONFIDENCE = 0.95
+
+
+def _entities_for(memory: MemoryService, text: str, given: list[str]) -> tuple[str, ...]:
+    """Explicit entities, plus any the text names that memory already knows."""
+    found = list(memory.extract_entities(text))
+    merged = dict.fromkeys(entity.strip().lower() for entity in [*given, *found] if entity.strip())
+    return tuple(merged)
+
+
+@app.command("add")
+def add(
+    text: str = typer.Argument(..., help="The statement, in one sentence about how you work."),
+    category: Category = typer.Option(
+        Category.WORK_STYLE, "--category", "-c", help="What kind of statement this is."
+    ),
+    entity: list[str] = typer.Option(
+        [], "--entity", "-e", help="A tool or library it names. Repeatable."
+    ),
+    confidence: float = typer.Option(
+        HUMAN_CONFIDENCE, min=0.0, max=1.0, help="How sure you are. Written by you, so high."
+    ),
+    ttl_days: int = typer.Option(0, help="Days before it asks to be re-confirmed. 0 = default."),
+) -> None:
+    """Write a profile statement yourself. It is active immediately.
+
+    Statements the system proposes wait for review; one you type has already
+    been approved by the only person whose opinion counts.
+    """
+    cleaned = " ".join(text.split())
+    if len(cleaned) < 12:
+        fail("a statement needs to say something: at least a short sentence")
+        raise typer.Exit(code=1)
+
+    with service() as memory:
+        statement = ProfileStatement(
+            statement=cleaned,
+            category=category,
+            confidence=confidence,
+            status=StatementStatus.ACTIVE,
+            origin=Origin.MANUAL,
+            entities=_entities_for(memory, cleaned, entity),
+            ttl_days=ttl_days,
+        )
+        memory.profile.add(statement)
+    ok(f"added {str(statement.id)[:8]} ({category})")
+    if statement.entities:
+        note(f"entities: {', '.join(statement.entities)}")
+
+
+def _find(memory: MemoryService, reference: str) -> ProfileStatement | None:
+    """A statement by full id or unambiguous prefix."""
+    cleaned = reference.strip().lower()
+    try:
+        return memory.profile.get(UUID(cleaned))
+    except ValueError:
+        pass
+    matches = [s for s in memory.profile.all() if str(s.id).startswith(cleaned)]
+    if len(matches) > 1:
+        fail(f"{reference} matches {len(matches)} statements; use a longer prefix")
+        return None
+    return matches[0] if matches else None
+
+
+@app.command("edit")
+def edit(
+    reference: str = typer.Argument(..., help="Statement id or prefix."),
+    text: str | None = typer.Option(None, "--text", help="New wording. Omit to open $EDITOR."),
+    category: Category | None = typer.Option(None, "--category", "-c"),
+    entity: list[str] | None = typer.Option(None, "--entity", "-e", help="Replace the entities."),
+) -> None:
+    """Reword a statement. Editing counts as confirming it today."""
+    with service() as memory:
+        statement = _find(memory, reference)
+        if statement is None:
+            fail(f"no statement matches {reference}")
+            raise typer.Exit(code=1)
+
+        wording = text
+        if wording is None and category is None and entity is None:
+            wording = click.edit(statement.statement)
+            if wording is None:
+                note("no changes")
+                raise typer.Exit()
+        new_text = " ".join((wording or statement.statement).split())
+        if len(new_text) < 12:
+            fail("a statement needs to say something: at least a short sentence")
+            raise typer.Exit(code=1)
+
+        entities = (
+            _entities_for(memory, new_text, entity or [])
+            if entity is not None or new_text != statement.statement
+            else statement.entities
+        )
+        updated = statement.model_copy(
+            update={
+                "statement": new_text,
+                "category": category or statement.category,
+                "entities": entities,
+                "last_confirmed_at": utcnow(),
+            }
+        )
+        memory.profile.add(updated)
+    ok(f"updated {str(statement.id)[:8]}")
+
+
+@app.command("remove")
+def remove(
+    reference: str = typer.Argument(..., help="Statement id or prefix."),
+    yes: bool = typer.Option(False, "--yes", help="Do not ask first."),
+) -> None:
+    """Stop serving a statement. It is kept, marked rejected, so history survives."""
+    with service() as memory:
+        statement = _find(memory, reference)
+        if statement is None:
+            fail(f"no statement matches {reference}")
+            raise typer.Exit(code=1)
+        if not yes and not typer.confirm(f'Remove "{statement.statement[:70]}"?'):
+            raise typer.Exit()
+        memory.profile.add(statement.model_copy(update={"status": StatementStatus.REJECTED}))
+    ok(f"removed {str(statement.id)[:8]}")

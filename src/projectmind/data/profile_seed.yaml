@@ -233,7 +233,7 @@ statements:
 
   - statement: Abandoned transformer decoders for OCR where inference latency matters more than a point of character error rate.
     category: abandoned
-    confidence: 0.84
+    confidence: 0.85
     entities: [trocr, transformer, crnn, ocr, latency]
 
   # ------------------------------------------------------------ constraint --
