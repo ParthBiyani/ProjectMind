@@ -65,8 +65,23 @@ def _claude_dir() -> Path:
 
 
 def _mcp_config_path() -> Path:
-    """Where Claude Code keeps user-scope MCP server registrations."""
-    return Path.home() / ".claude.json"
+    """Where Claude Code keeps user-scope MCP server registrations.
+
+    Beside `settings.json` when `CLAUDE_CONFIG_DIR` points elsewhere, so the
+    hooks and the server always land in the same installation.
+    """
+    import os
+
+    base = os.environ.get("CLAUDE_CONFIG_DIR")
+    return Path(base) / ".claude.json" if base else Path.home() / ".claude.json"
+
+
+def claude_settings_path() -> Path:
+    return _claude_dir() / "settings.json"
+
+
+def claude_mcp_path() -> Path:
+    return _mcp_config_path()
 
 
 def _load_json(path: Path) -> dict[str, Any]:
@@ -100,12 +115,24 @@ def _hook_entry(command: str) -> dict[str, Any]:
     }
 
 
+#: What identifies a hook entry as ours. Deliberately the module names and not
+#: the bare word "projectmind": another tool's hook can easily have that word in
+#: a path (this very repository is called ProjectMind), and uninstalling must
+#: never take someone else's hook with it.
+HOOK_SIGNATURES = ("projectmind.hook_entry", "projectmind.cli hook")
+
+
+def is_ours(entry: Any) -> bool:
+    text = json.dumps(entry)
+    return any(signature in text for signature in HOOK_SIGNATURES)
+
+
 def _contains_marker(entries: list[Any]) -> bool:
-    return MARKER in json.dumps(entries)
+    return any(is_ours(entry) for entry in entries)
 
 
 def _strip_marker(entries: list[Any]) -> list[Any]:
-    return [entry for entry in entries if MARKER not in json.dumps(entry)]
+    return [entry for entry in entries if not is_ours(entry)]
 
 
 @app.command("claude-code")
