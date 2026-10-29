@@ -17,7 +17,7 @@ from typing import Any
 from projectmind.sources.models import SourceChunk
 
 MAX_CHARS = 1_800
-MIN_CHARS = 150
+MIN_CHARS = 60
 MAX_CHUNKS_PER_CODE_FILE = 12
 MAX_CHUNKS_PER_NOTEBOOK = 60
 MAX_METRIC_CHUNKS = 40

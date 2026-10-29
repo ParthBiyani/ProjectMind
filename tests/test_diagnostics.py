@@ -28,6 +28,7 @@ EXPECTED_COMMANDS = {
     "eval",
     "ingest",
     "review",
+    "sources",
 }
 
 
