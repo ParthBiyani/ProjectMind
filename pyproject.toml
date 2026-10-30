@@ -34,6 +34,10 @@ postgres = [
 embeddings = [
   "fastembed>=0.3",
 ]
+semantic = [
+  "fastembed>=0.3",
+  "numpy>=1.26",
+]
 mcp = [
   "mcp>=2.0",
 ]

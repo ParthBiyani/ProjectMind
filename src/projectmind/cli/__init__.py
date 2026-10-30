@@ -28,6 +28,7 @@ from projectmind.cli import (
     profile_cmd,
     review_cmd,
     schedule_cmd,
+    semantic_cmd,
     sources_cmd,
 )
 from projectmind.cli._common import console, fail, note, ok, percent, service, table
@@ -53,6 +54,7 @@ app.add_typer(sources_cmd.app, name="sources")
 app.add_typer(daemon_cmd.app, name="daemon")
 app.add_typer(browser_cmd.app, name="browser")
 app.add_typer(schedule_cmd.app, name="schedule")
+app.add_typer(semantic_cmd.app, name="semantic")
 app.command("serve")(daemon_cmd.serve)
 app.command("demo")(demo_cmd.demo)
 

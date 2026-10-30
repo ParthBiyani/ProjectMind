@@ -26,12 +26,15 @@ import math
 import re
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from projectmind.config import Settings, get_settings
 from projectmind.logging import get_logger
 from projectmind.models import ServedEvidence
 from projectmind.storage import ChunkHit, Store
+
+if TYPE_CHECKING:  # pragma: no cover
+    from projectmind.semantic import SemanticIndex
 
 log = get_logger(__name__)
 
@@ -269,6 +272,13 @@ MISSING_TERM_CAP = 0.75
 NAMED_PROJECT_FLOOR = 0.35
 #: Two passages sharing this much of their vocabulary are the same passage.
 NEAR_DUPLICATE = 0.75
+#: Nearest passages considered when matching by meaning.
+SEMANTIC_CANDIDATES = 12
+
+
+def _overlap(left: frozenset[str] | set[str], right: frozenset[str] | set[str]) -> float:
+    union = left | right
+    return len(left & right) / len(union) if union else 0.0
 
 
 def question_terms(prompt: str) -> list[str]:
@@ -363,9 +373,15 @@ class Selection:
 class EvidenceRetriever:
     """Answers "what do my own sources say about this?" with cited excerpts."""
 
-    def __init__(self, store: Store, settings: Settings | None = None) -> None:
+    def __init__(
+        self,
+        store: Store,
+        settings: Settings | None = None,
+        semantic: SemanticIndex | None = None,
+    ) -> None:
         self.store = store
         self.settings = settings or get_settings()
+        self.semantic = semantic
 
     def retrieve(
         self,
@@ -377,6 +393,85 @@ class EvidenceRetriever:
         trace: list[dict[str, Any]] | None = None,
     ) -> list[ServedEvidence]:
         limit = limit or self.settings.max_evidence
+        served = self._lexical(prompt, project_key, limit, exclude_uris, trace)
+        if self.semantic is None or len(served) >= limit:
+            return served
+        return served + self._by_meaning(
+            prompt, project_key, limit - len(served), exclude_uris, served, trace
+        )
+
+    def _by_meaning(
+        self,
+        prompt: str,
+        project_key: str | None,
+        room: int,
+        exclude_uris: frozenset[str],
+        served: Sequence[ServedEvidence],
+        trace: list[dict[str, Any]] | None,
+    ) -> list[ServedEvidence]:
+        """Passages that say what the question asks, in other words.
+
+        Only the closest matches, and only above a similarity calibrated so that a
+        question about something never written down matches nothing.
+        """
+        assert self.semantic is not None
+        hits = self.semantic.search(prompt, k=SEMANTIC_CANDIDATES)
+        if not hits:
+            return []
+        best = hits[0].similarity
+        terms = set(question_terms(prompt))
+        taken = {item.chunk_id for item in served}
+        uris: dict[str, int] = {}
+        chosen: list[Scored] = []
+        for hit in hits:
+            if hit.similarity < self.settings.semantic_threshold:
+                self._note(
+                    trace,
+                    "semantic",
+                    similarity=round(hit.similarity, 3),
+                    outcome="below threshold",
+                )
+                break
+            if hit.similarity < best - self.settings.semantic_margin or len(chosen) >= room:
+                break
+            found = self.store.get_chunk(hit.chunk_id)
+            if found is None or hit.chunk_id in taken:
+                continue
+            uri = found.document.uri
+            if uri in exclude_uris or uris.get(uri, 0) >= PER_DOCUMENT:
+                continue
+            vocabulary = _chunk_terms(f"{found.chunk.heading} {found.chunk.text}")
+            if any(_overlap(vocabulary, other.vocabulary) >= NEAR_DUPLICATE for other in chosen):
+                continue
+            uris[uri] = uris.get(uri, 0) + 1
+            chosen.append(
+                Scored(
+                    hit=found,
+                    coverage=hit.similarity,
+                    matched=(),
+                    score=hit.similarity,
+                    vocabulary=frozenset(vocabulary),
+                )
+            )
+            self._note(
+                trace,
+                "semantic",
+                chunk=str(hit.chunk_id),
+                uri=uri,
+                similarity=round(hit.similarity, 3),
+                outcome="served",
+            )
+        weights = dict.fromkeys(terms, 1.0)
+        return [self._serve(item, weights, project_key) for item in chosen]
+
+    def _lexical(
+        self,
+        prompt: str,
+        project_key: str | None,
+        limit: int,
+        exclude_uris: frozenset[str],
+        trace: list[dict[str, Any]] | None,
+    ) -> list[ServedEvidence]:
         terms = question_terms(prompt)
         total = self.store.count_chunks()
         if not terms or total == 0:

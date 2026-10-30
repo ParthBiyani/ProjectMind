@@ -30,7 +30,7 @@ from collections.abc import Callable
 from datetime import UTC, datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
 from projectmind import __version__, capture
@@ -39,6 +39,9 @@ from projectmind.hook_entry import BUNDLE_HEADER, DAEMON_FILE, prepare_reply, re
 from projectmind.logging import get_logger
 from projectmind.service import MemoryService
 from projectmind.storage import open_store
+
+if TYPE_CHECKING:  # pragma: no cover
+    from projectmind.semantic import SemanticIndex
 
 log = get_logger(__name__)
 
@@ -85,6 +88,7 @@ class Daemon:
         ) * 60.0
         self.first_sync_delay = first_sync_delay
         self.memory = MemoryService.open(settings)
+        self.semantic = self._open_semantic()
         self.lock = threading.Lock()
         self.stop_event = threading.Event()
         self.sync_running = threading.Event()
@@ -98,10 +102,55 @@ class Daemon:
         self.port = int(self.server.server_address[1])
         self._threads: list[threading.Thread] = []
 
+    # --- semantic search -----------------------------------------------------
+    def _open_semantic(self) -> SemanticIndex | None:
+        """The meaning index, when it is switched on and installed. Else lexical only."""
+        if not self.settings.semantic:
+            return None
+        from projectmind import semantic
+
+        if not semantic.available():
+            log.warning("semantic search is on but fastembed/numpy are not installed")
+            return None
+        index = semantic.SemanticIndex(self.memory.store)
+        self.memory.evidence.semantic = index
+        return index
+
+    def _load_semantic(self) -> None:
+        if self.semantic is None:
+            return
+        try:
+            count = self.semantic.load()
+            log.info("semantic index loaded", extra={"passages": count})
+        except Exception as exc:
+            log.warning("semantic index failed to load", extra={"error": str(exc)})
+            self.memory.evidence.semantic = None
+
+    def _embed_pending(self) -> None:
+        """Embed passages added by the last sync, then refresh the in-memory matrix."""
+        if self.semantic is None:
+            return
+        from projectmind.semantic import SemanticIndex
+
+        store = open_store(self.settings)
+        try:
+            worker = SemanticIndex(
+                store, model_name=self.semantic.model_name, encoder=self.semantic.encoder
+            )
+            if worker.embed_pending():
+                with self.lock:
+                    self.semantic.load()
+        finally:
+            store.close()
+
     # --- lifecycle ---------------------------------------------------------
     def start(self) -> None:
         """Announce, then serve and schedule in background threads."""
         self._announce()
+        if self.semantic is not None:
+            loading = threading.Thread(target=self._load_semantic, name="semantic", daemon=True)
+            loading.start()
+            self._threads.append(loading)
         serving = threading.Thread(target=self.server.serve_forever, name="serve", daemon=True)
         serving.start()
         self._threads.append(serving)
@@ -158,6 +207,7 @@ class Daemon:
                 report = sync(store, self.settings)
             finally:
                 store.close()
+            self._embed_pending()
             self.last_sync = {
                 "at": datetime.now(UTC).isoformat(),
                 "summary": report.summary(),
