@@ -198,21 +198,9 @@ class MemoryService:
                 token_budget=self._profile_budget(max_tokens),
             )
 
-        evidence = budgeting.EvidenceBudget((), 0)
-        evidence_trace: list[dict[str, Any]] = []
-        found = self.evidence.retrieve(
-            analysis.prompt, project_key=project.key, trace=evidence_trace
-        )
-        trace["evidence"] = evidence_trace
-        if found:
-            allowance = max(0, self.settings.total_token_cap - profile_slice.tokens)
-            evidence = budgeting.fit_evidence(
-                found,
-                token_cap=min(self.settings.evidence_token_cap, allowance),
-                max_items=self.settings.max_evidence,
-            )
-
-        episodic = budgeting.BudgetReport((), 0)
+        # History records first, so the same commit is not also served as a source
+        # excerpt (records are mirrored into the knowledge base and would match twice).
+        candidates: Sequence[ServedRecord] = ()
         if decision.inject_episodic and self.retriever is not None:
             candidate_trace: list[dict[str, Any]] = []
             candidates = self.retriever.retrieve(
@@ -224,6 +212,26 @@ class MemoryService:
                 trace=candidate_trace,
             )
             trace["retrieval"] = candidate_trace
+
+        evidence = budgeting.EvidenceBudget((), 0)
+        evidence_trace: list[dict[str, Any]] = []
+        found = self.evidence.retrieve(
+            analysis.prompt,
+            project_key=project.key,
+            exclude_uris=frozenset(record.source_url for record in candidates),
+            trace=evidence_trace,
+        )
+        trace["evidence"] = evidence_trace
+        if found:
+            allowance = max(0, self.settings.total_token_cap - profile_slice.tokens)
+            evidence = budgeting.fit_evidence(
+                found,
+                token_cap=min(self.settings.evidence_token_cap, allowance),
+                max_items=self.settings.max_evidence,
+            )
+
+        episodic = budgeting.BudgetReport((), 0)
+        if candidates:
             episodic = budgeting.fit_records(
                 candidates,
                 token_cap=self.settings.episodic_token_cap,

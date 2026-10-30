@@ -346,6 +346,7 @@ class Selection:
     floor: float
     chosen: list[Scored]
     per_document: dict[str, int]
+    exclude: frozenset[str] = frozenset()
 
 
 class EvidenceRetriever:
@@ -361,6 +362,7 @@ class EvidenceRetriever:
         *,
         project_key: str | None = None,
         limit: int | None = None,
+        exclude_uris: frozenset[str] = frozenset(),
         trace: list[dict[str, Any]] | None = None,
     ) -> list[ServedEvidence]:
         limit = limit or self.settings.max_evidence
@@ -391,6 +393,7 @@ class EvidenceRetriever:
             floor=self.settings.evidence_coverage_floor,
             chosen=[],
             per_document={},
+            exclude=exclude_uris,
         )
         for item in scored:
             outcome = self._judge(item, selection)
@@ -491,6 +494,8 @@ class EvidenceRetriever:
 
     @staticmethod
     def _judge(item: Scored, selection: Selection) -> str:
+        if item.hit.document.uri in selection.exclude:
+            return "cut: already served as a history record"
         if item.coverage < selection.floor:
             return "cut: below the coverage floor"
         if selection.anchor not in item.matched:
