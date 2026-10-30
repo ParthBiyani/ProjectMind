@@ -124,7 +124,11 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
 
     daemon_port: int = Field(
-        default=0, description="Port for the local daemon. 0 picks a free one each start."
+        default=47615,
+        description=(
+            "Port for the local daemon. Fixed by default so the browser extension, which "
+            "cannot read files, always knows where to find it. 0 picks a free one."
+        ),
     )
     daemon_sync_minutes: float = Field(
         default=30.0,

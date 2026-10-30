@@ -33,7 +33,7 @@ from pathlib import Path
 from typing import Any
 from uuid import UUID
 
-from projectmind import __version__
+from projectmind import __version__, capture
 from projectmind.config import Settings
 from projectmind.hook_entry import BUNDLE_HEADER, DAEMON_FILE, prepare_reply, read_event
 from projectmind.logging import get_logger
@@ -88,7 +88,7 @@ class Daemon:
         self.lock = threading.Lock()
         self.stop_event = threading.Event()
         self.sync_running = threading.Event()
-        self.capture_handlers: dict[str, CaptureHandler] = {}
+        self.capture_handlers: dict[str, CaptureHandler] = dict(capture.HANDLERS)
         self.last_sync: dict[str, Any] = {}
         self.server = ThreadingHTTPServer(
             ("127.0.0.1", port if port is not None else settings.daemon_port),

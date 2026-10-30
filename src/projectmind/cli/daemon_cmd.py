@@ -67,12 +67,16 @@ def serve(
         raise typer.Exit(code=1)
 
     lower_priority()
-    daemon = Daemon(
-        get_settings(),
-        port=port,
-        sync_minutes=sync_minutes,
-        first_sync_delay=first_sync_delay,
-    )
+    try:
+        daemon = Daemon(
+            get_settings(),
+            port=port,
+            sync_minutes=sync_minutes,
+            first_sync_delay=first_sync_delay,
+        )
+    except OSError as exc:
+        fail(f"could not listen ({exc}); is another program using the port? try: --port 0")
+        raise typer.Exit(code=1) from exc
 
     def shutdown(_signal: int, _frame: FrameType | None) -> None:
         daemon.stop_event.set()
