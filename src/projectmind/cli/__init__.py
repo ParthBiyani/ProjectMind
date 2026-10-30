@@ -18,6 +18,7 @@ from projectmind import __version__
 from projectmind.cli import (
     browser_cmd,
     daemon_cmd,
+    demo_cmd,
     eval_cmd,
     fingerprint_cmd,
     history_cmd,
@@ -53,6 +54,7 @@ app.add_typer(daemon_cmd.app, name="daemon")
 app.add_typer(browser_cmd.app, name="browser")
 app.add_typer(schedule_cmd.app, name="schedule")
 app.command("serve")(daemon_cmd.serve)
+app.command("demo")(demo_cmd.demo)
 
 
 @app.callback(invoke_without_command=True)

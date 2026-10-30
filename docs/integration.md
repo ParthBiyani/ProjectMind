@@ -28,8 +28,11 @@ never to a wrong one.
 ```bash
 projectmind init                    # create the database, load starter statements
 projectmind profile review          # approve the statements you actually agree with
+projectmind sources add "D:/Projects"   # what to read (see docs/sources.md)
+projectmind sync                    # read it
 projectmind install claude-code     # hooks + MCP registration
-projectmind doctor                  # confirm
+projectmind schedule install        # start the daemon at logon (Windows)
+projectmind doctor                  # confirm; it runs the hook the way your agent would
 ```
 
 Restart the client afterwards. Check what changed at any point with
@@ -49,11 +52,16 @@ left exactly where they are, every file is backed up to
 installer twice changes nothing the second time. A config file that is not
 valid JSON aborts the install rather than being overwritten.
 
-The hook command goes through the interpreter rather than the console script:
+The hook command goes through the interpreter rather than the console script,
+in isolated mode, to a slim entry point that does not import the CLI:
 
 ```
-"<python>" -m projectmind.cli hook user-prompt-submit
+"<python>" -I -m projectmind.hook_entry user-prompt-submit
 ```
+
+`-I` keeps the project's own files off the import path: a hook runs with the
+user's project as its working directory, and a project containing a `yaml.py` or a
+`typer/` folder must not be able to shadow the real module.
 
 A console script only resolves if its directory happens to be on `PATH`, which
 it frequently is not inside an editor's hook subprocess.
@@ -61,9 +69,17 @@ it frequently is not inside an editor's hook subprocess.
 ## The two hooks
 
 **`UserPromptSubmit`** is the injection path. It reads the hook event from
-stdin, calls the same `MemoryService.get_context` the MCP tool calls, and prints
-the rendered markdown. Silence is the common case: trivial prompts, a project
-with no matching memory, or an empty profile all produce no output.
+stdin (as UTF-8 bytes; on Windows a piped stream is otherwise the ANSI code page),
+gets the same `MemoryService.get_context` answer the MCP tool returns, and replies
+with ASCII-only JSON (`hookSpecificOutput.additionalContext`) ending in a
+`<!-- projectmind bundle <id> -->` marker, so the agent can report whether the
+context helped. Silence is the common case: trivial prompts, a question nothing
+covers, or an empty profile all produce no output.
+
+It works in two tiers. If the daemon is running (`projectmind serve`), the hook is
+a few lines of standard library that ask it over localhost; the database is already
+open and the index warm. If not, it does the work itself. Either way the answer is
+the same, and a hook that cannot get one exits 0 and says nothing.
 
 **`SessionStart`** warms the project cache so the first prompt of a session is
 not the slow one. It prints nothing, deliberately — a session-start hook that
@@ -81,7 +97,7 @@ than just this tool:
 
 | | |
 |---|---|
-| Added latency | roughly 300–600 ms, almost all of it Python interpreter startup |
+| Added latency | about 150 ms through the daemon, about 400 ms in process (measured; interpreter start-up alone is about 70 ms) |
 | Added tokens | 0 when nothing is served; at most 2300, capped server-side |
 | Network calls | none on the retrieval path |
 
@@ -102,9 +118,11 @@ at anything new. Deliberate exploration has to be able to run clean.
 
 ## Privacy
 
-- The prompt is **hashed, never stored**. The bundle log keeps a digest, the
-  word count, the served record ids and the gate's reason — enough to score the
-  gate, not enough to reconstruct a session.
+- The interaction history keeps, **locally**, each prompt, what was served and why
+  each candidate was kept or cut, so answers can be audited and replayed
+  (`projectmind history`). `PROJECTMIND_HISTORY=minimal` keeps hashed metadata only;
+  `off` keeps nothing; excluded projects are always `minimal`. See
+  [privacy.md](privacy.md).
 - Nothing leaves the machine on the retrieval path. There is no network call in
   `get_context` at all.
 - Repository content reaches an external model only during ingestion, only if
@@ -121,7 +139,7 @@ Any MCP client can use the server directly:
     "projectmind": {
       "type": "stdio",
       "command": "/path/to/python",
-      "args": ["-m", "projectmind.cli", "mcp"]
+      "args": ["-I", "-m", "projectmind.cli", "mcp"]
     }
   }
 }

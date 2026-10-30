@@ -4,73 +4,95 @@ ProjectMind is a single-user, local-first memory service. It has one job: given
 a prompt and a project directory, return the smallest bundle of context that
 makes an agent's next action better, and return nothing when it cannot.
 
-## The two layers
+## Three kinds of memory
 
 Memory is split by cost-of-being-wrong, not by content type.
 
-| | Profile | Episodic |
-|---|---|---|
-| Answers | How does this person work? | What happened, where, and why? |
-| Volume | 50–200 statements | thousands of records |
-| Injection | always, fingerprint-filtered | conditionally, when the gate fires |
-| Wrong record costs | every future task | one task |
-| Confidence bar | ≥ 0.85 to activate | ≥ 0.6 to serve |
+| | Profile | History records | Source passages |
+|---|---|---|---|
+| Answers | How does this person work? | What was decided or broke, and when? | What do my own files, notes, sessions and reading say? |
+| Volume | 50-200 statements | hundreds to thousands | tens of thousands |
+| Written by | a human, always | extracted from git history | read verbatim from sources |
+| Served | every task, fingerprint-filtered | when the gate fires | when a passage covers the question |
+| A wrong item costs | every future task | one task | one task |
+| Bar | confidence >= 0.85 | confidence >= 0.6 | covers the question's distinctive terms (>= 60%) |
 
-The split exists so the two layers can have different write paths. Profile
-statements only ever become active through human approval. Episodic records are
-ingested continuously and never touch the profile without passing through the
-reflection loop.
+The split exists so the layers can have different write paths. Profile statements
+only become active through human approval. History records and source passages are
+ingested continuously and never touch the profile without passing through review.
+Commit-derived records are also mirrored into the passage index, so a question about
+your own project is found by what it says rather than by a keyword list.
 
 ## Request path
 
 ```
-              ┌─────────────────────────────────────────────────┐
-  prompt ────►│                  get_context                    │
-project_path  │                (the front door)                 │
-              └───────┬─────────────────────────────┬───────────┘
-                      │                             │
-                      ▼                             ▼
-             ┌─────────────────┐          ┌───────────────────┐
-             │   fingerprint   │          │  prompt analysis  │
-             │  (cached, no    │          │  task type,       │
-             │   LLM, cheap)   │          │  entities,novelty │
-             └────────┬────────┘          └─────────┬─────────┘
-                      └──────────┬──────────────────┘
-                                 ▼
-                        ┌─────────────────┐
-                        │ relevance gate  │  decides what may be served
-                        └────────┬────────┘
-                                 ▼
-                        ┌─────────────────┐
-                        │   retrieval     │  BM25 + vector, fused
-                        └────────┬────────┘
-                                 ▼
-                        ┌─────────────────┐
-                        │ rank and budget │  hard token caps, cross-project boost
-                        └────────┬────────┘
-                                 ▼
-                          ContextBundle
+   hook (thin client) --localhost--> daemon (warm database, scheduler)
+                                         |
+                                         v
+              +------------------------ get_context ----------------------+
+  prompt ---->|  fingerprint + prompt analysis    (trivial prompts stop)  |
+ project_path +---------+------------------------------------+------------+
+                        |                                    |
+                        v                                    v
+              profile slice (<= 800 tok)       history records (gate + hybrid retrieval)
+                        |                                    |
+                        |                                    v
+                        |                      source passages (open vocabulary, cited)
+                        |                         rarity-weighted coverage, most
+                        |                         specific term required, deduplicated
+                        v                                    v
+                        +----------------- budget ----------+
+                                 hard caps: 800 / 1500 / 1200, 2300 total
+                                          |
+                                          v
+                              ContextBundle  --> interaction history
+                                                 (prompt, trace, answer, delivery)
 ```
 
-Every stage is allowed to return nothing. An empty bundle is a correct answer
-and is recorded as such, because "did not inject" is a measurable outcome.
+Every stage may return nothing. An empty bundle is a correct answer and is recorded
+as one, with the reason, because "did not inject" is a measurable outcome.
+
+## How knowledge gets in
+
+```
+  folders -----> walker (whitelist, data-dump guard, identity-document guard)
+  git history -> extractors (no invented reasons)           \
+  sessions ----> turns (what was asked, the closing reply)   >-> chunks (exact line
+  browser -----> allow-listed pages, queries that led to one /    spans / locators)
+  extension ---> page text, allow-listed or explicitly remembered      |
+                                                                       v
+                                       credential + identifier scan (drop, never redact)
+                                                                       |
+                                                                       v
+                                                    SQLite FTS5 / Postgres tsvector
+```
+
+`projectmind sync` (and the daemon, on a timer) runs the whole of it incrementally.
 
 ## Layout
 
 ```
 src/projectmind/
-  config.py        settings, resolved from env then defaults
+  config.py        settings: environment, then ~/.projectmind/.env, never a project's .env
   models.py        domain types shared by every layer
-  storage/         store protocol, sqlite and postgres backends, embeddings
+  service.py       the front door: get_context, search, history logging
+  storage/         store protocol, sqlite and postgres backends, embeddings, migrations
   profile/         statement repository and the lifecycle state machine
   fingerprint/     manifest parsing, directory scan, cache, similarity
-  gate/            prompt analysis, gating rules, ranking, token budget
-  retrieval/       lexical, vector and fused search over episodic memory
+  gate/            prompt analysis, gating rules, token budget
+  retrieval/       history-record retrieval (hybrid) and evidence retrieval (cited passages)
   ingestion/       local git and GitHub sources, decision/failure extractors
+  sources/         walker, chunker, office readers, transcripts, browser history, audit
   reflection/      contradiction detection, TTL scan, review queue
-  telemetry/       bundle log and the metrics that score all of the above
+  evaluation/      the synthetic set and the real-material scorer
+  capture.py       what the browser extension may send, and what is kept
+  daemon.py        local server: warm hook answers, scheduler, capture endpoint
+  hook_entry.py    standard-library-only hook client with an in-process fallback
+  sync.py          one incremental pass over every source
+  demo.py          the guided tour on a fictional workspace
   mcp/             the MCP server surface
   cli/             operator commands
+extension/         the Edge and Chrome extension (Manifest V3, plain JavaScript)
 ```
 
 ## Design rules
@@ -81,11 +103,17 @@ src/projectmind/
 2. **Degrade to nothing, never to wrong.** A missing API key, an unreachable
    database or an unparsable manifest reduces what is served. It never changes
    a correct answer into an incorrect one.
-3. **Provenance on every record.** Anything served can be traced to the commit,
-   pull request or statement it came from.
+3. **Provenance on every item.** Anything served is a verbatim excerpt with the
+   exact place it came from (path and lines, commit URL, page, cell, turn, URL).
+   Nothing is summarised or paraphrased.
 4. **Inference is labelled.** An extracted "why" is a hypothesis about an
    artifact, and is marked as one.
 5. **Nothing interrupts a working session.** All human review is batched.
+6. **Sources are read-only.** A scan lists and reads; it never writes to a source
+   and never touches version control state.
+7. **Private by construction.** Credentials and personal identifiers are dropped,
+   identity documents are never opened, browser reading is opt-in and
+   allow-listed, and the daemon answers only on loopback with a token.
 
 ## Storage
 

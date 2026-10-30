@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -14,6 +15,10 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 # optional extras happen to be installed. Set at import, before any
 # module-scoped fixture builds an embedder.
 os.environ["PROJECTMIND_EMBEDDING_PROVIDER"] = "hashing"
+
+# Tests must never read or write the real ProjectMind home (logs, database, state).
+# Tests that need a particular home set their own; this is only the default.
+os.environ.setdefault("PROJECTMIND_HOME", tempfile.mkdtemp(prefix="pm-tests-"))
 
 
 @pytest.fixture(scope="session")

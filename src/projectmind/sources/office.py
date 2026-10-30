@@ -7,6 +7,7 @@ the author wrote it, page by page or slide by slide, so a citation can say
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 from projectmind.sources.chunking import MAX_CHARS
@@ -49,6 +50,8 @@ def read_pdf(path: Path) -> tuple[str, list[SourceChunk]]:
         from pypdf import PdfReader
     except ModuleNotFoundError as exc:
         raise MissingDependencyError("pypdf") from exc
+    # pypdf logs a warning per odd font or object in a PDF; none of it is actionable.
+    logging.getLogger("pypdf").setLevel(logging.CRITICAL)
     reader = PdfReader(str(path))
     title = str((reader.metadata.title if reader.metadata else None) or path.stem)
     chunks: list[SourceChunk] = []

@@ -101,8 +101,12 @@ def check_embeddings(settings: Settings) -> Finding:
 
 def check_llm(settings: Settings) -> Finding:
     if settings.has_llm:
-        return Finding("llm notes", Status.OK, "ANTHROPIC_API_KEY is set")
-    return Finding("llm notes", Status.WARN, "off; heuristics only (set ANTHROPIC_API_KEY)")
+        return Finding(
+            "llm notes",
+            Status.OK,
+            "a key is set but LLM notes are not implemented yet; nothing calls a model",
+        )
+    return Finding("llm notes", Status.OK, "not used; every feature works without a model")
 
 
 def check_git() -> Finding:

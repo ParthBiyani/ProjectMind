@@ -674,3 +674,24 @@ class TestKnowledgeBase:
         self.index(store, "D:/q/b.md", root="D:/q", content_hash="bb")
         assert store.document_hashes("D:/p") == {"D:/p/a.md": "aa"}
         assert store.count_documents("D:/q") == 1
+
+
+class TestChunkAudit:
+    def test_chunks_can_be_streamed_and_deleted(self, store: Store) -> None:
+        document = make_document("D:/p/a.md")
+        chunks = make_chunks(document, "alpha text one", "beta text two", "gamma text three")
+        store.replace_document(document, chunks)
+        streamed = list(store.iter_chunks())
+        assert {chunk.id for chunk in streamed} == {chunk.id for chunk in chunks}
+
+        assert store.delete_chunks([chunks[0].id, chunks[1].id]) == 2
+        assert store.count_chunks() == 1
+        assert store.search_chunks(["alpha"]) == []
+        assert store.search_chunks(["gamma"])
+        reloaded = store.get_document("D:/p/a.md")
+        assert reloaded is not None
+        assert reloaded.chunk_count == 1
+
+    def test_deleting_nothing_is_fine(self, store: Store) -> None:
+        assert store.delete_chunks([]) == 0
+        assert store.delete_chunks([uuid4()]) == 0

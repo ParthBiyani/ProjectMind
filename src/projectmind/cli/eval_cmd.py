@@ -7,10 +7,11 @@ from pathlib import Path
 
 import typer
 
-from projectmind.cli._common import console, fail, note, ok, table
+from projectmind.cli._common import console, fail, note, ok, service, table
 from projectmind.evaluation import EvalSet, NullSystem
 from projectmind.evaluation.live import LiveSystem, live_service
 from projectmind.evaluation.paths import eval_dir
+from projectmind.evaluation.real import RealSet, run_real
 from projectmind.evaluation.runner import OracleSystem, load, run, save
 from projectmind.evaluation.scoring import compare as compare_reports
 
@@ -112,3 +113,56 @@ def compare(
         rendered.add_row(name, f"{old:.3f}", f"{new:.3f}", f"[{style}]{arrow}{delta:.3f}[/{style}]")
     console.print(rendered)
     note("higher is better for every metric except false_injection_rate and the latencies")
+
+
+@app.command("real")
+def real(
+    queries: Path | None = typer.Argument(
+        None, help="Your query file. Default: <projectmind home>/eval/queries-real.yaml"
+    ),
+    save: Path | None = typer.Option(None, help="Write the full report as JSON."),
+    min_hit: float = typer.Option(0.0, help="Exit non-zero if the hit rate is below this."),
+    max_false_injection: float = typer.Option(
+        1.0, help="Exit non-zero if the false injection rate is above this."
+    ),
+) -> None:
+    """Score the front door against questions about your own material.
+
+    Runs against the live store, read-only: nothing is logged and nothing is
+    written. Labels cite sources by substring, so they survive re-ingestion.
+    """
+    from projectmind.config import get_settings
+
+    path = queries or get_settings().home / "eval" / "queries-real.yaml"
+    if not path.is_file():
+        fail(f"no query file at {path}; see eval/real.example.yaml for the format")
+        raise typer.Exit(code=1)
+    query_set = RealSet.from_yaml(path)
+
+    with service() as memory:
+        report = run_real(memory, query_set)
+
+    rendered = table("metric", "value", title=f"{report.name} · {report.queries} queries")
+    rendered.add_row("hit rate (answerable)", f"{report.hit_rate:.3f}  ({report.answerable})")
+    rendered.add_row("served precision", f"{report.served_precision:.3f}")
+    rendered.add_row(
+        "silence rate (absent topics)", f"{report.silence_rate:.3f}  ({report.silent})"
+    )
+    rendered.add_row("false injection rate", f"{report.false_injection_rate:.3f}")
+    rendered.add_row("forbidden sources served", str(report.forbidden_served))
+    rendered.add_row("mean tokens", f"{report.mean_tokens:.0f}")
+    rendered.add_row("p95 latency", f"{report.p95_latency_ms:.0f} ms")
+    console.print(rendered)
+
+    for outcome in report.failures:
+        fail(f"{outcome.id}: {outcome.reason}")
+        note(f"  {outcome.prompt}")
+        for citation in outcome.served[:3]:
+            note(f"    served {citation}")
+
+    if save:
+        save.write_text(report.model_dump_json(indent=2), encoding="utf-8")
+        ok(f"wrote {save}")
+
+    if report.hit_rate < min_hit or report.false_injection_rate > max_false_injection:
+        raise typer.Exit(code=1)

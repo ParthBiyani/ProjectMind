@@ -15,7 +15,7 @@ from __future__ import annotations
 import json
 import re
 from abc import ABC, abstractmethod
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Iterator, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from types import TracebackType
@@ -172,7 +172,7 @@ def search_terms(terms: Iterable[str]) -> list[str]:
     """
     seen: dict[str, None] = {}
     for term in terms:
-        for piece in re.split(r"[^0-9a-z]+", term.lower()):
+        for piece in re.split(r"[\W_]+", term.lower()):
             if len(piece) >= 2:
                 seen[piece] = None
     return list(seen)
@@ -545,6 +545,14 @@ class Store(ABC):
 
     @abstractmethod
     def get_chunk(self, chunk_id: UUID) -> ChunkHit | None: ...
+
+    @abstractmethod
+    def iter_chunks(self) -> Iterator[ChunkRecord]:
+        """Every indexed chunk, streamed. For audits; not for the hot path."""
+
+    @abstractmethod
+    def delete_chunks(self, chunk_ids: Sequence[UUID]) -> int:
+        """Remove chunks (and their search entries). Returns how many existed."""
 
     @abstractmethod
     def document_projects(self) -> list[str]:

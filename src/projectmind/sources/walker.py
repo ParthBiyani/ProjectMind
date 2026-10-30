@@ -20,6 +20,7 @@ from fnmatch import fnmatch
 from pathlib import Path
 
 from projectmind.sources.config import RootConfig
+from projectmind.sources.secrets import is_sensitive_name
 
 #: Directories that are never entered.
 SKIP_DIRS = frozenset(
@@ -79,7 +80,7 @@ class Candidate:
 def classify(path: Path, size: int) -> str | None:
     """The source type of a file, or None if it should not be read."""
     name = path.name.lower()
-    if any(fnmatch(name, pattern) for pattern in SKIP_NAMES):
+    if any(fnmatch(name, pattern) for pattern in SKIP_NAMES) or is_sensitive_name(name):
         return None
     source_type = SOURCE_TYPES.get(path.suffix.lower())
     if source_type is None or size == 0 or size > MAX_BYTES[source_type]:
@@ -109,7 +110,7 @@ def walk(root: Path) -> Iterator[Candidate]:
         for entry in entries:
             try:
                 if entry.is_dir(follow_symlinks=False):
-                    if entry.name.lower() not in SKIP_DIRS:
+                    if entry.name.lower() not in SKIP_DIRS and not is_sensitive_name(entry.name):
                         stack.append(Path(entry.path))
                 elif entry.is_file(follow_symlinks=False):
                     stat = entry.stat(follow_symlinks=False)

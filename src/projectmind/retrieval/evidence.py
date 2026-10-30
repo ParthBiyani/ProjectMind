@@ -239,13 +239,18 @@ STOPWORDS = frozenset(
     ]
 )
 
-_TOKEN = re.compile(r"[A-Za-z0-9][A-Za-z0-9_\-+.#]*")
+# Unicode-aware: "café" is one word, not "caf" plus a stray accent.
+_TOKEN = re.compile(r"[^\W_][\w\-+.#]*")
 
 MAX_EXCERPT_LINES = 12
 MAX_EXCERPT_CHARS = 1_000
 CANDIDATES = 40
 PROJECT_CANDIDATES = 15
 PER_DOCUMENT = 2
+#: A passage must contain at least one of the question's N most specific words.
+#: One, not all: a stray rare word in a question must not veto a passage that
+#: matches everything else, but generic words alone must still never be enough.
+ANCHORS = 2
 
 #: A term in more than this share of all chunks says nothing about the topic.
 COMMON_SHARE = 0.25
@@ -255,8 +260,11 @@ COMMON_MIN_CORPUS = 200
 SAME_PROJECT_BOOST = 1.15
 #: The question names the project the passage belongs to ("the prostate MRI task").
 NAMED_PROJECT_BOOST = 1.3
-#: An absent term weighs at most this many times a term seen once.
-MISSING_TERM_CAP = 1.25
+#: An absent term weighs this many times a term seen once. Below 1 on purpose:
+#: one unfamiliar word (a typo, a name, a foreign word) should lower confidence in
+#: a passage that matches everything else, not veto it. A question that is mostly
+#: unfamiliar still fails the floor.
+MISSING_TERM_CAP = 0.75
 #: Two passages sharing this much of their vocabulary are the same passage.
 NEAR_DUPLICATE = 0.75
 
@@ -293,7 +301,7 @@ def _chunk_terms(text: str) -> set[str]:
 
 def name_terms(name: str) -> set[str]:
     """The words in a project key or document title."""
-    return {piece for piece in re.split(r"[^a-z0-9]+", name.lower()) if len(piece) >= 2}
+    return {piece for piece in re.split(r"[\W_]+", name.lower()) if len(piece) >= 2}
 
 
 def _close(left: str, right: str) -> bool:
@@ -341,11 +349,12 @@ class Selection:
     """What has been chosen so far, for judging the next candidate."""
 
     limit: int
-    anchor: str
+    anchors: tuple[str, ...]
     needed: int
     floor: float
     chosen: list[Scored]
     per_document: dict[str, int]
+    exclude: frozenset[str] = frozenset()
 
 
 class EvidenceRetriever:
@@ -361,6 +370,7 @@ class EvidenceRetriever:
         *,
         project_key: str | None = None,
         limit: int | None = None,
+        exclude_uris: frozenset[str] = frozenset(),
         trace: list[dict[str, Any]] | None = None,
     ) -> list[ServedEvidence]:
         limit = limit or self.settings.max_evidence
@@ -384,13 +394,14 @@ class EvidenceRetriever:
 
         selection = Selection(
             limit=limit,
-            # The question's most specific word has to be in the passage. This is
+            # One of the question's most specific words has to be in the passage. This is
             # what stops a passage that only shares generic words from passing.
-            anchor=max(present, key=lambda term: weights[term]),
+            anchors=tuple(sorted(present, key=lambda term: -weights[term])[:ANCHORS]),
             needed=min(2, len(present)),
             floor=self.settings.evidence_coverage_floor,
             chosen=[],
             per_document={},
+            exclude=exclude_uris,
         )
         for item in scored:
             outcome = self._judge(item, selection)
@@ -429,7 +440,7 @@ class EvidenceRetriever:
                 # A term the corpus has never seen counts against every passage,
                 # but not unboundedly: in a small corpus an absent word would
                 # otherwise outweigh everything that is actually there.
-                weight = min(weight, MISSING_TERM_CAP * idf(total, 1))
+                weight = MISSING_TERM_CAP * idf(total, 1)
             weights[term] = weight
         return weights
 
@@ -491,10 +502,12 @@ class EvidenceRetriever:
 
     @staticmethod
     def _judge(item: Scored, selection: Selection) -> str:
+        if item.hit.document.uri in selection.exclude:
+            return "cut: already served as a history record"
         if item.coverage < selection.floor:
             return "cut: below the coverage floor"
-        if selection.anchor not in item.matched:
-            return f"cut: does not mention '{selection.anchor}'"
+        if not any(anchor in item.matched for anchor in selection.anchors):
+            return f"cut: mentions none of {', '.join(repr(a) for a in selection.anchors)}"
         if len(item.matched) < selection.needed:
             return "cut: too few of the question's terms"
         if len(selection.chosen) >= selection.limit:

@@ -25,6 +25,7 @@ from projectmind.models import utcnow
 from projectmind.sources.browser import BrowserConfig, BrowserReport, index_history
 from projectmind.sources.config import SourcesConfig
 from projectmind.sources.indexer import DEFAULT_MIN_AGE_SECONDS, KnowledgeIndexer, ScanReport
+from projectmind.sources.records import index_records
 from projectmind.storage import Store
 
 log = get_logger(__name__)
@@ -98,6 +99,7 @@ def sync(
     *,
     git: bool = True,
     files: bool = True,
+    browser: bool = True,
     min_age_seconds: float = DEFAULT_MIN_AGE_SECONDS,
 ) -> SyncReport:
     started = time.perf_counter()
@@ -121,13 +123,16 @@ def sync(
             )
             state[f"git:{root.key}"] = began.isoformat()
 
+    if git:
+        index_records(store)
+
     if files:
         indexer = KnowledgeIndexer(store, min_age_seconds=min_age_seconds)
         report.scans = [indexer.scan_root(root) for root in config.roots]
 
-    browser = BrowserConfig.load(settings.home)
-    if files and browser.enabled:
-        report.browser = index_history(store, browser)
+    browser_config = BrowserConfig.load(settings.home)
+    if files and browser and browser_config.enabled:
+        report.browser = index_history(store, browser_config)
 
     _save_state(settings.home, state)
     report.seconds = round(time.perf_counter() - started, 2)

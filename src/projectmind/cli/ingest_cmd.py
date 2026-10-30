@@ -12,6 +12,7 @@ from projectmind.cli._common import console, fail, note, ok, service, table
 from projectmind.config import get_settings
 from projectmind.ingestion.pipeline import IngestionPipeline, IngestionReport
 from projectmind.models import RecordType, utcnow
+from projectmind.sources.records import index_records
 from projectmind.storage import RecordFilter
 
 app = typer.Typer(help="Ingest repositories into episodic memory.", no_args_is_help=True)
@@ -81,6 +82,7 @@ def ingest_local(
             report = pipeline.ingest_tree(
                 root, authors=authors, since=since, max_depth=depth, max_repositories=limit
             )
+        index_records(memory.store)
         _render(report)
         note(f"{memory.store.count_records()} episodic records in total")
 
