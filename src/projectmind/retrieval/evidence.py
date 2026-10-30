@@ -239,7 +239,8 @@ STOPWORDS = frozenset(
     ]
 )
 
-_TOKEN = re.compile(r"[A-Za-z0-9][A-Za-z0-9_\-+.#]*")
+# Unicode-aware: "café" is one word, not "caf" plus a stray accent.
+_TOKEN = re.compile(r"[^\W_][\w\-+.#]*")
 
 MAX_EXCERPT_LINES = 12
 MAX_EXCERPT_CHARS = 1_000
@@ -255,8 +256,11 @@ COMMON_MIN_CORPUS = 200
 SAME_PROJECT_BOOST = 1.15
 #: The question names the project the passage belongs to ("the prostate MRI task").
 NAMED_PROJECT_BOOST = 1.3
-#: An absent term weighs at most this many times a term seen once.
-MISSING_TERM_CAP = 1.25
+#: An absent term weighs this many times a term seen once. Below 1 on purpose:
+#: one unfamiliar word (a typo, a name, a foreign word) should lower confidence in
+#: a passage that matches everything else, not veto it. A question that is mostly
+#: unfamiliar still fails the floor.
+MISSING_TERM_CAP = 0.75
 #: Two passages sharing this much of their vocabulary are the same passage.
 NEAR_DUPLICATE = 0.75
 
@@ -293,7 +297,7 @@ def _chunk_terms(text: str) -> set[str]:
 
 def name_terms(name: str) -> set[str]:
     """The words in a project key or document title."""
-    return {piece for piece in re.split(r"[^a-z0-9]+", name.lower()) if len(piece) >= 2}
+    return {piece for piece in re.split(r"[\W_]+", name.lower()) if len(piece) >= 2}
 
 
 def _close(left: str, right: str) -> bool:
@@ -432,7 +436,7 @@ class EvidenceRetriever:
                 # A term the corpus has never seen counts against every passage,
                 # but not unboundedly: in a small corpus an absent word would
                 # otherwise outweigh everything that is actually there.
-                weight = min(weight, MISSING_TERM_CAP * idf(total, 1))
+                weight = MISSING_TERM_CAP * idf(total, 1)
             weights[term] = weight
         return weights
 

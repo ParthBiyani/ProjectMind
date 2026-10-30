@@ -172,7 +172,7 @@ def search_terms(terms: Iterable[str]) -> list[str]:
     """
     seen: dict[str, None] = {}
     for term in terms:
-        for piece in re.split(r"[^0-9a-z]+", term.lower()):
+        for piece in re.split(r"[\W_]+", term.lower()):
             if len(piece) >= 2:
                 seen[piece] = None
     return list(seen)
