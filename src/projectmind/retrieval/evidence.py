@@ -247,6 +247,10 @@ MAX_EXCERPT_CHARS = 1_000
 CANDIDATES = 40
 PROJECT_CANDIDATES = 15
 PER_DOCUMENT = 2
+#: A passage must contain at least one of the question's N most specific words.
+#: One, not all: a stray rare word in a question must not veto a passage that
+#: matches everything else, but generic words alone must still never be enough.
+ANCHORS = 2
 
 #: A term in more than this share of all chunks says nothing about the topic.
 COMMON_SHARE = 0.25
@@ -345,7 +349,7 @@ class Selection:
     """What has been chosen so far, for judging the next candidate."""
 
     limit: int
-    anchor: str
+    anchors: tuple[str, ...]
     needed: int
     floor: float
     chosen: list[Scored]
@@ -390,9 +394,9 @@ class EvidenceRetriever:
 
         selection = Selection(
             limit=limit,
-            # The question's most specific word has to be in the passage. This is
+            # One of the question's most specific words has to be in the passage. This is
             # what stops a passage that only shares generic words from passing.
-            anchor=max(present, key=lambda term: weights[term]),
+            anchors=tuple(sorted(present, key=lambda term: -weights[term])[:ANCHORS]),
             needed=min(2, len(present)),
             floor=self.settings.evidence_coverage_floor,
             chosen=[],
@@ -502,8 +506,8 @@ class EvidenceRetriever:
             return "cut: already served as a history record"
         if item.coverage < selection.floor:
             return "cut: below the coverage floor"
-        if selection.anchor not in item.matched:
-            return f"cut: does not mention '{selection.anchor}'"
+        if not any(anchor in item.matched for anchor in selection.anchors):
+            return f"cut: mentions none of {', '.join(repr(a) for a in selection.anchors)}"
         if len(item.matched) < selection.needed:
             return "cut: too few of the question's terms"
         if len(selection.chosen) >= selection.limit:

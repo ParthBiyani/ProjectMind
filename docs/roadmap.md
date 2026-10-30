@@ -112,7 +112,7 @@ written down:
    `replay`.
 2. **A cited knowledge base.** Notes, scripts, notebooks, logs, documents and Claude
    Code sessions become verbatim, citable passages; commits are searchable by what
-   they say; a passage is served only when it covers the question's most specific
+   they say; a passage is served only when it covers one of the question's most specific
    term. Honest records: no invented reasons.
 3. **Always current.** `sync`, a local daemon, a fast hook, a logon task.
 4. **The browser.** Allow-listed history and an Edge/Chrome extension limited by its

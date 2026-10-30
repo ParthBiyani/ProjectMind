@@ -78,7 +78,9 @@ distinctive terms and each is weighted by how rare it is in your material. A
 passage is served only if
 
 1. it contains enough of the question's weight (default 60%),
-2. it contains the question's **most specific** term, and
+2. it contains one of the question's **two most specific** terms (one, not both: a
+   stray rare word in a question must not veto a passage that matches everything
+   else, but generic words alone are never enough), and
 3. it is not a near-duplicate of a passage already chosen.
 
 A project named in the question ("the prostate MRI task") is preferred. A term the

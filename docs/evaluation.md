@@ -167,9 +167,9 @@ answerable, 10 about topics that appear nowhere in the material.
 | Silence on absent topics | **1.000** (10 of 10) |
 | False injection rate | **0.000** |
 | Forbidden sources served | 0 |
-| Served precision (served items that are expected sources) | 0.628 |
-| Mean tokens per bundle | 551 |
-| p95 latency (in process, hashing embedder) | 102 ms |
+| Served precision (served items that are expected sources) | 0.646 |
+| Mean tokens per bundle | 552 |
+| p95 latency (in process, hashing embedder) | 86 ms |
 
 How to read these honestly:
 
@@ -178,7 +178,7 @@ How to read these honestly:
   on exactly that, not from the playbook file the label named; the other asked about
   bar blocks and was answered from the design documents that describe them, not
   the commit. They are counted as misses because the labels are not edited after the
-  fact. Served precision (0.628) is the same effect measured across all answers.
+  fact. Served precision (0.646) is the same effect measured across all answers.
 - **The labels were written by the author of the system**, after looking at the
   index. A set labelled before the retriever existed would be harder. Treat 0.90 as
   an upper-ish figure and watch the replay (`projectmind history replay`) of real

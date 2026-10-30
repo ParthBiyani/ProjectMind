@@ -74,6 +74,17 @@ class TestOneUnfamiliarWord:
         texts = ask(store, "Why did we drop the profit factor column, zorblax?")
         assert any("profit factor column" in text for text in texts)
 
+    def test_a_stray_rare_word_that_exists_elsewhere_does_not_veto_either(
+        self, store: Store
+    ) -> None:
+        """ "café" is in the corpus (in another document), so it is a rare word the
+        ledger note lacks. That must not stop the note that answers the question."""
+        texts = ask(store, "Why did we drop the profit factor column? café")
+        assert any("profit factor column" in text for text in texts)
+
+    def test_generic_words_alone_are_still_never_enough(self, store: Store) -> None:
+        assert ask(store, "zorblax quuxify the table, the report and a summary") == []
+
     def test_a_trailing_emoji_or_symbol_changes_nothing(self, store: Store) -> None:
         texts = ask(store, "Why did we drop the profit factor column? — ✨")
         assert any("profit factor column" in text for text in texts)

@@ -24,7 +24,7 @@ about restraint:
 1. **Verbatim and cited.** What is served is copied from a source, with the file and
    line numbers (or commit, page, cell, turn, URL). Nothing is summarised.
 2. **Relevant or silent.** A passage is served only if it covers the question's
-   distinctive terms, including its most specific one. Ask about something you have
+   distinctive terms, including one of its two most specific. Ask about something you have
    never written about and the answer is nothing, not the nearest unrelated text.
 3. **Private by construction.** Everything stays on your machine. Credentials,
    identity documents and personal identifiers never enter the index. Browser
@@ -81,7 +81,7 @@ real projects, 10 of them about topics that appear nowhere in the material:
 |---|---|
 | Correct source cited | **0.90** (18 of 20 answerable) |
 | Silent on absent topics | **1.00** (10 of 10); false injection **0.00** |
-| Tokens per answer / p95 latency | 551 / 102 ms in process |
+| Tokens per answer / p95 latency | 552 / 86 ms in process |
 
 Read the caveats in [docs/evaluation.md](docs/evaluation.md#v020-measured-on-real-material):
 I labelled these after seeing the index, 30 queries is small, and precision-first
@@ -148,7 +148,7 @@ allow-list, so the browser itself prevents it reading anything else.
  prompt ──► skip mechanical edits ──► profile slice (<= 800 tokens)
                        ├────────────► history records (gate + hybrid retrieval)
                        └────────────► source passages: rarity-weighted coverage,
-                                      most specific term required, deduplicated
+                                      one of two most specific terms required, deduplicated
                                                 │
                                    hard budget: 2300 tokens total
                                                 │
