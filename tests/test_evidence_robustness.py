@@ -94,3 +94,22 @@ class TestOneUnfamiliarWord:
 
     def test_an_unfamiliar_subject_with_generic_words_is_still_silent(self, store: Store) -> None:
         assert ask(store, "Fix the zorblax table report") == []
+
+
+class TestNamedProject:
+    """Naming a project is strong evidence; the rest of the question may be worded freely."""
+
+    def test_a_named_project_is_served_even_when_the_rest_is_worded_differently(
+        self, store: Store
+    ) -> None:
+        texts = ask(store, "Describe the ledger reconciliation")
+        assert any("profit factor column" in text for text in texts)
+
+    def test_the_same_looseness_does_not_apply_to_an_unnamed_project(self, store: Store) -> None:
+        assert ask(store, "Describe the cortado reconciliation") == []
+
+    def test_naming_a_project_does_not_open_the_floodgates(self, store: Store) -> None:
+        assert (
+            ask(store, "Describe the ledger quarterly reconciliation thoroughly and exhaustively")
+            == []
+        )

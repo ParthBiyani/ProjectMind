@@ -265,6 +265,8 @@ NAMED_PROJECT_BOOST = 1.3
 #: a passage that matches everything else, not veto it. A question that is mostly
 #: unfamiliar still fails the floor.
 MISSING_TERM_CAP = 0.75
+#: The coverage a passage needs when the question names the project it belongs to.
+NAMED_PROJECT_FLOOR = 0.35
 #: Two passages sharing this much of their vocabulary are the same passage.
 NEAR_DUPLICATE = 0.75
 
@@ -355,6 +357,7 @@ class Selection:
     chosen: list[Scored]
     per_document: dict[str, int]
     exclude: frozenset[str] = frozenset()
+    named: frozenset[str] = frozenset()
 
 
 class EvidenceRetriever:
@@ -399,6 +402,7 @@ class EvidenceRetriever:
             anchors=tuple(sorted(present, key=lambda term: -weights[term])[:ANCHORS]),
             needed=min(2, len(present)),
             floor=self.settings.evidence_coverage_floor,
+            named=named,
             chosen=[],
             per_document={},
             exclude=exclude_uris,
@@ -504,7 +508,12 @@ class EvidenceRetriever:
     def _judge(item: Scored, selection: Selection) -> str:
         if item.hit.document.uri in selection.exclude:
             return "cut: already served as a history record"
-        if item.coverage < selection.floor:
+        floor = selection.floor
+        if item.hit.document.project_key in selection.named:
+            # The question names this project. That is strong evidence the passage is
+            # wanted even when the rest of the question is worded differently.
+            floor = min(floor, NAMED_PROJECT_FLOOR)
+        if item.coverage < floor:
             return "cut: below the coverage floor"
         if not any(anchor in item.matched for anchor in selection.anchors):
             return f"cut: mentions none of {', '.join(repr(a) for a in selection.anchors)}"

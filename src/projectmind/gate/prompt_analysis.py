@@ -64,7 +64,11 @@ WEAKLY_MECHANICAL = (
 #: Questions about code already in front of the reader.
 EXPLAIN_PATTERNS = (
     r"^what (?:does|is) (?:this|that)\b",
-    r"^explain (?:this|the|what)\b",
+    r"^explain (?:this|that|what)\b",
+    # "Explain the platform I called Kairos" is a memory question, not a request to
+    # read the code on screen, so only code nouns count after "the".
+    r"^explain the (?:code|function|class|method|file|snippet|error|output|stack ?trace|loop|"
+    r"test|lines?|diff|regex|query|variable|import|decorator)\b",
     r"^what'?s (?:this|that)\b",
     r"\bwhat does (?:this|the) \w+ do\b",
 )

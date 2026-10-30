@@ -133,7 +133,7 @@ extractor and its own evaluation.
   in words the notes never use returns nothing. An opt-in embedding reranker is the
   likely fix, and needs its own calibration.
 - **The history-record path still has a closed-vocabulary gate** and misses its
-  false-injection target (0.323 against 0.10). Commits are now also reachable through
+  false-injection target (0.208 against 0.10). Commits are now also reachable through
   the open-vocabulary path, which makes this less important in practice, not
   non-existent.
 - **Optional notes from a language model** (`ANTHROPIC_API_KEY`) are described in the

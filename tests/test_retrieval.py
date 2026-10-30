@@ -339,7 +339,7 @@ class TestPhaseFourTargets:
         0.323. Recalibrating the floors against a pinned clock is tracked as
         part of the retrieval rework; the ratchet below is today's honest value.
         """
-        assert phase_four.false_injection_rate <= 0.33
+        assert phase_four.false_injection_rate <= 0.21
 
     def test_budgets_still_hold(self, phase_four: ScoreReport) -> None:
         assert phase_four.budget_violations == 0

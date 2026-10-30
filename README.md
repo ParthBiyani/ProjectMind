@@ -74,22 +74,26 @@ guarantees, each backed by a test, are in [docs/privacy.md](docs/privacy.md).
 ## Measured
 
 On **my own material** (about 9,000 documents and 27,000 passages: git history,
-competition logs, notebooks, PDFs, sessions, browsing), 30 questions I wrote about
-real projects, 10 of them about topics that appear nowhere in the material:
+competition logs, notebooks, PDFs, sessions, browsing), 42 questions I wrote about
+real projects: 20 in the project's own words, 12 deliberately reworded to avoid them,
+and 10 about topics that appear nowhere in the material:
 
 | | |
 |---|---|
-| Correct source cited | **0.90** (18 of 20 answerable) |
+| Correct source cited, own words | **0.90** (18 of 20) |
+| Correct source cited, reworded | **0.67** (8 of 12) |
 | Silent on absent topics | **1.00** (10 of 10); false injection **0.00** |
-| Tokens per answer / p95 latency | 552 / 86 ms in process |
+| Served precision | 0.71 |
+| Tokens per answer / p95 latency | 535 / 80 ms in process |
 
 Read the caveats in [docs/evaluation.md](docs/evaluation.md#v020-measured-on-real-material):
-I labelled these after seeing the index, 30 queries is small, and precision-first
-retrieval returns nothing when you ask in words your notes never use.
+I labelled these after seeing the index, the set is small, and the reworded half is the
+honest measure of the weakness: retrieval is lexical, so a true synonym ("heart cycle"
+for a task called "Cardiac Cycle") returns nothing.
 
 On the 40-query synthetic set (clock pinned, reproducible): gate precision 1.00,
-precision@5 0.795, cross-project hit rate 0.35, **false injection 0.323 against a
-target of 0.10, which is missed**. That figure and the figures previously published
+precision@5 0.742, cross-project hit rate 0.325, **false injection 0.208 against a
+target of 0.10, which is missed** (it was 0.323 before this release's last change). That figure and the figures previously published
 for it could not be reproduced: v0.1.0 never gave its clock to the retriever, so its
 evaluation drifted with the date. This is documented, not rounded away.
 

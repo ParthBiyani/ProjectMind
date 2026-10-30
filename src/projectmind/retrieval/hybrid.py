@@ -71,7 +71,7 @@ MINIMUM_SCORE = 0.38
 #: This is what makes the number of results depend on the question rather than
 #: on the cap: a query with one strong answer serves one record, a query with
 #: four comparable answers serves four.
-RELATIVE_FLOOR = 0.78
+RELATIVE_FLOOR = 0.85
 
 #: Fusion weights. Lexical leads because exact technical tokens are the most
 #: reliable signal in this corpus, and because the default embedder is a

@@ -70,7 +70,8 @@ under Fixed was found by running it against real repositories.
 ### Known gaps
 
 - Lexical retrieval returns nothing when you ask in words your notes never use.
-- The history-record path misses its false-injection target (0.323 against 0.10).
+- The synthetic set's false injection is 0.208 against a 0.10 target (it was 0.323).
+- Reworded questions score 0.67 on real material: lexical retrieval cannot bridge true synonyms.
 - LLM-written notes are described in the configuration but not implemented.
 - The extension is not exercised in a real browser in CI.
 
