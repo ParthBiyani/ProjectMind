@@ -1,0 +1,42 @@
+# A query set for `projectmind eval real`, in the format your own file uses.
+#
+# Keep the real file (about 30 questions about your own work) outside version
+# control: <projectmind home>/eval/queries-real.yaml. It names your projects.
+#
+# How to label:
+#   * `any_of`     substrings of a citation. A correct answer cites at least one
+#                  source containing one of them: a file name, a project folder, a
+#                  commit hash. Not record ids; these survive re-ingestion.
+#   * `forbidden`  substrings of citations that would be actively misleading here.
+#                  Near-misses are what make false injection measurable.
+#   * `expect: nothing`  the topic is not in your material. Silence is correct.
+#                  A set without these cannot measure false injection; aim for a third.
+#   * `project`    the directory the question is asked from, as an agent would.
+
+name: example
+description: Illustrative only.
+queries:
+  - id: e01
+    prompt: What was the metric and the best score on the prostate MRI task?
+    project: D:/Projects/ProjectMind
+    any_of: ["Prostate MRI Topology Reconstruction/CLAUDE.md"]
+
+  - id: e02
+    prompt: Why did we drop the profit factor column from the variations table?
+    project: D:/Projects/AlphaDesk Trading Agent
+    any_of: ["/commit/2924c633"]
+    forbidden: ["Kairos"]
+
+  - id: e03
+    prompt: How did I handle rate limits and retries for the LLM provider?
+    project: D:/Projects/VoiceBrief
+    any_of: ["voice-brief", "VoiceBrief"]
+
+  - id: e04
+    prompt: Set up Terraform modules for AWS Lambda cold starts
+    expect: nothing
+    note: nothing in the material mentions Terraform
+
+  - id: e05
+    prompt: Tune the Kubernetes ingress certificate rotation
+    expect: nothing
