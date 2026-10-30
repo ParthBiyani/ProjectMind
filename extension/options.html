@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>ProjectMind options</title>
+<style>
+  :root { color-scheme: light dark; --fg: #1f2328; --bg: #ffffff; --muted: #656d76; --line: #d0d7de; --ok: #1a7f37; --bad: #cf222e; }
+  @media (prefers-color-scheme: dark) { :root { --fg: #e6edf3; --bg: #0d1117; --muted: #8b949e; --line: #30363d; --ok: #3fb950; --bad: #f85149; } }
+  body { max-width: 560px; margin: 32px auto; padding: 0 16px; font: 14px/1.5 system-ui, sans-serif; color: var(--fg); background: var(--bg); }
+  h1 { font-size: 18px; } label { display: block; margin-top: 14px; font-weight: 600; }
+  input { width: 100%; box-sizing: border-box; padding: 7px 9px; margin-top: 4px; font: inherit; color: inherit; background: transparent; border: 1px solid var(--line); border-radius: 6px; }
+  button { margin: 14px 8px 0 0; padding: 7px 14px; font: inherit; color: inherit; background: transparent; border: 1px solid var(--line); border-radius: 6px; cursor: pointer; }
+  p, #result { color: var(--muted); } #result.ok { color: var(--ok); } #result.bad { color: var(--bad); }
+  code { font-family: ui-monospace, monospace; }
+</style>
+</head>
+<body>
+  <h1>ProjectMind capture</h1>
+  <p>This extension sends pages you read on a short list of documentation sites to the ProjectMind
+     program on <em>this computer</em>, and nowhere else. Run <code>projectmind daemon token</code>
+     in a terminal and paste the result below.</p>
+  <label for="token">Token</label>
+  <input id="token" type="password" autocomplete="off" spellcheck="false">
+  <label for="port">Port</label>
+  <input id="port" type="number" min="1" max="65535">
+  <button id="save">Save</button><button id="test">Test connection</button>
+  <p id="result"></p>
+  <p id="rules"></p>
+  <script src="lib.js"></script>
+  <script src="options.js"></script>
+</body>
+</html>

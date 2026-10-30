@@ -74,6 +74,8 @@ class SqliteStore(Store):
         self._conn.execute("PRAGMA foreign_keys = ON")
         self._conn.execute("PRAGMA journal_mode = WAL")
         self._conn.execute("PRAGMA synchronous = NORMAL")
+        # The daemon's background sync and a foreground command can write at once.
+        self._conn.execute("PRAGMA busy_timeout = 30000")
 
     # --- lifecycle ---------------------------------------------------------
     def migrate(self) -> int:
