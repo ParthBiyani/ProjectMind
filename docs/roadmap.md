@@ -1,7 +1,8 @@
 # Roadmap
 
-Six phases. Each one ends with something usable, and no phase starts before the
-previous one is measured. Status is updated as each exit criterion is met.
+Six phases and a hardening release. Each one ends with something usable, and no
+phase starts before the previous one is measured. Status is updated as each exit
+criterion is met.
 
 | Phase | Deliverable | Exit criterion | Status |
 |---|---|---|---|
@@ -9,9 +10,10 @@ previous one is measured. Status is updated as each exit criterion is met.
 | 1 | Profile memory + always-on injection | running in the daily workflow, profile slice under 800 tokens | **complete** |
 | 2 | Project fingerprinting + the gate | gate precision ≥ 0.80 on the no-injection cases | **complete** |
 | 3 | Cross-project episodic ingestion | `search_memory` live, precision@5 scored | **complete** |
-| 4 | Retrieval quality | precision ≥ 0.70, cross-project hit rate ≥ 30%, false injection ≤ 10% | **3 of 4 met** |
+| 4 | Retrieval quality | precision ≥ 0.70, cross-project hit rate ≥ 30%, false injection ≤ 10% | **3 of 4 met** (re-measured under a pinned clock in v0.2.0; see below) |
 | 5 | Reflection loop + monthly review | ≥ 60% proposal acceptance, review under 5 minutes | **complete, unmeasured** |
-| 6 | Browser and AI chat capture | measurable improvement on the Phase 0 eval, or cut | deferred |
+| 6 | Browser and AI chat capture | measurable improvement on the Phase 0 eval, or cut | **built in v0.2.0**, differently from the design (below) |
+| v0.2 | Real-world hardening and a grounded knowledge base | works on real material, measured | **complete**; see below |
 
 ## Why this order
 
@@ -89,3 +91,53 @@ report. Claiming 60% now would be inventing it.
   queries, so that set no longer measures them independently.
 - **Phase 6 is unbuilt.** Browser and chat capture remain designed and
   documented only; see [phase-6-capture.md](phase-6-capture.md).
+
+## v0.2.0: what changed and why
+
+v0.1.0 passed its own tests and failed on a real machine. Run against real
+repositories it read one repository of fourteen (git's ownership check refused the
+rest and the tool reported "not a git repository"), wrote bytes into the agent's
+context that were not valid UTF-8, reported a healthy install that was not
+installed, and answered questions about the user's own projects with nothing,
+because retrieval was gated on a closed list of technology names. Its evaluation
+also drifted with the wall clock, so its recorded numbers could not be reproduced
+(see [evaluation.md](evaluation.md)).
+
+v0.2.0 fixes those and makes the system answer from what its owner has actually
+written down:
+
+1. **Hardening.** Per-command ownership override; UTF-8 hook I/O in isolated mode;
+   a clock that reaches ranking; `.env` read from ProjectMind's home only; `doctor`
+   that runs the hook; profile add/edit/remove; a complete interaction history with
+   `replay`.
+2. **A cited knowledge base.** Notes, scripts, notebooks, logs, documents and Claude
+   Code sessions become verbatim, citable passages; commits are searchable by what
+   they say; a passage is served only when it covers the question's most specific
+   term. Honest records: no invented reasons.
+3. **Always current.** `sync`, a local daemon, a fast hook, a logon task.
+4. **The browser.** Allow-listed history and an Edge/Chrome extension limited by its
+   manifest to the same list.
+5. **Proof.** A scorer for questions about your own material, and a demo that is
+   also a regression test.
+
+Phase 6 was designed as a source of *profile proposals* and deliberately left
+unbuilt. What was built instead feeds the *knowledge base*: reading and session
+turns become citable passages, which is the part that was measurable. Turning
+repeated reading into profile proposals ("researched X six times, never adopted
+it") remains unbuilt, for the reason the design gave: it needs a conservative
+extractor and its own evaluation.
+
+## Known gaps after v0.2.0
+
+- **Vocabulary mismatch is silence.** Retrieval is lexical with stemming. A question
+  in words the notes never use returns nothing. An opt-in embedding reranker is the
+  likely fix, and needs its own calibration.
+- **The history-record path still has a closed-vocabulary gate** and misses its
+  false-injection target (0.323 against 0.10). Commits are now also reachable through
+  the open-vocabulary path, which makes this less important in practice, not
+  non-existent.
+- **Optional notes from a language model** (`ANTHROPIC_API_KEY`) are described in the
+  configuration but not implemented. Everything else works without a key.
+- **The extension has not been loaded into a browser in CI.** Its logic and its
+  manifest are tested; the end-to-end check is manual (`extension/README.md`).
+- **Evaluation labels were written by the system's author** after seeing the index.

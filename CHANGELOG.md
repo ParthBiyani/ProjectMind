@@ -3,6 +3,77 @@
 Notable changes, newest first. Follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 loosely and [Semantic Versioning](https://semver.org/spec/v2.0.0.html) strictly.
 
+## [0.2.0] — 2026-10-30
+
+Real-world hardening, and a knowledge base that answers from what its owner has
+written down. v0.1.0 passed its tests and failed on a real machine; every item
+under Fixed was found by running it against real repositories.
+
+### Added
+
+- **A cited knowledge base.** Notes, `CLAUDE.md` logs, scripts, notebooks, training
+  logs, small result files, PDF, Word and PowerPoint documents, and Claude Code
+  session transcripts become verbatim passages with exact line spans or locators
+  (`projectmind sources add / list / scan / remove / search / audit`). Full-text
+  search on SQLite (FTS5, Porter stemming) and Postgres (tsvector).
+- **Grounded serving.** A passage is served only if it covers the question's
+  distinctive terms, including its most specific one, with near-duplicates
+  suppressed and a named project preferred. Commit-derived records are searchable
+  the same way, so a question about your own project needs no keyword list.
+- **`projectmind sync`**, a local **daemon** (`serve`, `daemon ...`), a hook that is a
+  thin client of it (about 150 ms against about 400 ms in process), and
+  `schedule install` to start it at logon.
+- **Interaction history.** Every prompt, the exact text served, a trace of each
+  candidate kept or cut, delivery and feedback (`projectmind history list / show /
+  replay / label / export / purge`).
+- **Browser.** Allow-listed Edge and Chrome history (off by default, dry-run first) and
+  a Manifest V3 extension limited by its manifest to the same list.
+- **Profile authoring**: `profile add / edit / remove` and edit inside `review`.
+- **`projectmind eval real`** to score the front door on your own material, and
+  **`projectmind demo`**, a guided tour that is also a regression test.
+- **`doctor`** now verifies hooks and MCP registration and runs the hook the way
+  the agent would.
+- Documentation: [sources](docs/sources.md), [privacy](docs/privacy.md), updated
+  architecture, integration, evaluation and roadmap.
+
+### Fixed
+
+- Repositories git refused on ownership (common after a Windows account change) were
+  skipped and reported as "not a git repository"; one of fourteen was read.
+- The hook wrote ANSI-code-page bytes into the agent's context and could crash on
+  non-ASCII input. It now reads and writes UTF-8 and replies in ASCII-safe JSON.
+- The service never passed its clock to retrieval, so the evaluation drifted with
+  the wall clock and its recorded figures cannot be reproduced. The set now pins
+  `as_of`. See [evaluation.md](docs/evaluation.md#correction-to-the-phase-4-figures-v020).
+- Records no longer carry invented reasons ("adopted while working on llm, llm");
+  `Co-Authored-By` trailers are not read as rationale; entity lists are unique and
+  path matching uses whole components.
+- `PROJECTMIND_EXCLUDED_REPOS` could not be set from the environment.
+- `.env` was read from the working directory of whichever project was open.
+- Hook and MCP server both injected the same context; hook output carried no
+  bundle id, so feedback could not be recorded.
+- Hook detection matched the bare word "projectmind", so uninstalling could remove
+  another tool's hook.
+- A seed statement sat below the activation bar and could not be approved.
+- Evaluation files were found relative to the package and failed outside a checkout.
+
+### Security and privacy
+
+- Identity and financial documents are skipped by file and folder name; credentials
+  and personal identifiers (Aadhaar, PAN, SSN, payment cards) are dropped, not
+  redacted. The identifier rules are deliberately narrow so experiment logs are
+  not deleted by them. `sources audit --fix` applies today's rules to what is
+  already indexed.
+- The daemon binds to loopback, requires a bearer token, checks the `Host` header and
+  sends no CORS headers; the extension cannot read sites outside the allow-list.
+
+### Known gaps
+
+- Lexical retrieval returns nothing when you ask in words your notes never use.
+- The history-record path misses its false-injection target (0.323 against 0.10).
+- LLM-written notes are described in the configuration but not implemented.
+- The extension is not exercised in a real browser in CI.
+
 ## [0.1.0] — 2026-07-17
 
 First working version. Phases 0 through 5 of the roadmap are complete; Phase 6

@@ -1,6 +1,10 @@
 # Phase 6 — browser and AI chat capture
 
-**Status: designed, deliberately unbuilt.**
+**Status: superseded in v0.2.0.** Browser history and Claude Code sessions are now
+read, but into the *knowledge base* as citable passages, not into profile proposals;
+see [sources.md](sources.md) and [privacy.md](privacy.md). The profile-proposal design
+below is still unbuilt, and its privacy conditions (allow-list, dry run, derived data
+only) are the ones the implementation follows.
 
 This document exists so the decision not to build it is on the record, with the
 conditions under which that changes.

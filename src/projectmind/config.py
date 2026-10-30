@@ -94,7 +94,10 @@ class Settings(BaseSettings):
     anthropic_api_key: str | None = Field(
         default=None,
         validation_alias=AliasChoices("PROJECTMIND_ANTHROPIC_API_KEY", "ANTHROPIC_API_KEY"),
-        description="Unlocks LLM extraction and reflection. Everything works without it.",
+        description=(
+            "Reserved for optional LLM-written notes, which are not implemented yet. "
+            "Nothing in this version calls a model; everything works without a key."
+        ),
     )
     anthropic_model: str = "claude-haiku-4-5-20251001"
     github_token: str | None = Field(

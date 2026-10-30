@@ -118,12 +118,85 @@ is noted in the roadmap rather than pretended away.
 Latency is zeroed in committed baselines. It is machine-dependent and would
 churn the diff on every run; it is still measured and reported at runtime.
 
+## Correction to the Phase 4 figures (v0.2.0)
+
+The Phase 4 table above records `false_injection_rate` 0.174, `precision@5` 0.750
+and `cross_project_hit_rate` 0.300. **Those figures cannot be reproduced and should
+not be quoted.** The cause was found in v0.2.0: the service computed a moment for
+each request but never handed it to the retriever, so every run scored recency
+against the wall clock. The evaluation therefore drifted on its own as time passed
+(`precision@5` was 0.80 on the day it was fitted, 0.57 three months later and 0.0 a
+year on).
+
+The set now pins `as_of: 2026-07-15` and the clock reaches ranking, so a run is
+reproducible to the digit. Measured with the hashing embedder:
+
+| Metric | Target | v0.2.0 (pinned) | |
+|---|---|---|---|
+| `gate_precision` | >= 0.80 | **1.000** | met |
+| `precision_at_k` | >= 0.70 | **0.795** | met |
+| `cross_project_hit_rate` | >= 0.30 | **0.350** | met |
+| `false_injection_rate` | <= 0.10 | **0.323** | **missed** |
+| forbidden sources served | 0 | 0 | met |
+| mean / max tokens | <= 2300 | 405 / 667 | met |
+| p95 latency | | 13.6 ms | |
+
+The ratchet in `tests/test_retrieval.py` is set to 0.33 so it cannot get worse.
+This set scores the *history records* path, whose gate still uses a closed
+vocabulary. v0.2.0 does not tune it; the answer to its weakness is the path
+below, which does not depend on that vocabulary.
+
+## v0.2.0: measured on real material
+
+The synthetic set cannot tell you whether retrieval works on what *you* have.
+`projectmind eval real` scores the front door against questions about your own
+files, commits, sessions and competitions. A query names what a correct answer must
+cite, as substrings of the citation (so labels survive re-ingestion), or says that
+the topic is absent and the right answer is silence. The query file names real
+projects, so it lives outside version control (`~/.projectmind/eval/`); the format
+is in [`eval/real.example.yaml`](../eval/real.example.yaml).
+
+Measured on 2026-10-30 against a knowledge base of 9,000 documents and 27,400
+passages (git history, notes and logs, notebooks, PDFs, Word and PowerPoint files,
+Claude Code sessions and allow-listed browser pages), with 30 queries: 20
+answerable, 10 about topics that appear nowhere in the material.
+
+| Metric | Result |
+|---|---|
+| Hit rate (a correct source is cited) | **0.900** (18 of 20) |
+| Silence on absent topics | **1.000** (10 of 10) |
+| False injection rate | **0.000** |
+| Forbidden sources served | 0 |
+| Served precision (served items that are expected sources) | 0.628 |
+| Mean tokens per bundle | 551 |
+| p95 latency (in process, hashing embedder) | 102 ms |
+
+How to read these honestly:
+
+- **Both misses served plausible sources that the labels did not list.** One asked
+  what to do when a score plateaus and was answered from other competitions' notes
+  on exactly that, not from the playbook file the label named; the other asked about
+  bar blocks and was answered from the design documents that describe them, not
+  the commit. They are counted as misses because the labels are not edited after the
+  fact. Served precision (0.628) is the same effect measured across all answers.
+- **The labels were written by the author of the system**, after looking at the
+  index. A set labelled before the retriever existed would be harder. Treat 0.90 as
+  an upper-ish figure and watch the replay (`projectmind history replay`) of real
+  questions as the better long-run signal.
+- **Silence has a cost.** Precision-first retrieval answers nothing when the question
+  uses words the notes never do ("rate limits" for notes that say "429"). The ten
+  silent queries cannot measure that; the interaction history can (`history list
+  --empty`, then label what should have answered).
+- **Thirty queries is small.** One query moves the hit rate by 5 points.
+
 ## Running it
 
 ```bash
-projectmind eval run --system null
+projectmind eval run --system live                      # the synthetic set, pinned clock
 projectmind eval run --system live --save eval/baselines/phase-4.json
 projectmind eval compare eval/baselines/phase-0-null.json eval/baselines/phase-4.json
+projectmind eval real                                   # your own questions, your own data
+projectmind eval real --min-hit 0.8 --max-false-injection 0.1   # exit non-zero on regression
 ```
 
 ## What this set does not measure

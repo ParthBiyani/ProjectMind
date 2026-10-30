@@ -1,262 +1,237 @@
 # ProjectMind
 
-**A cross-project engineering memory layer for coding agents.** Served over
-MCP, gated on project fingerprint and prompt intent, and measured against a
-hand-labelled evaluation set from the first commit.
+**A memory for your coding agent that answers from your own work: your notes, your
+commits, your competition logs, your past sessions and what you read, quoted
+verbatim with the exact place it came from, and silent when it has nothing.**
 
 [![CI](https://github.com/ParthBiyani/ProjectMind/actions/workflows/ci.yml/badge.svg)](https://github.com/ParthBiyani/ProjectMind/actions/workflows/ci.yml)
-![Python](https://img.shields.io/badge/python-3.11%20%7C%203.12-blue)
+![Python](https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.13-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
 ---
 
 ## The problem
 
-Coding agents start every task with amnesia. They do not know you already
-solved this auth pattern in a different repository, in a different language,
-eight months ago. They do not know you tried Riverpod and abandoned it.
+A coding agent starts every task with amnesia. It does not know you solved this in
+another repository eight months ago, that the competition notes say exact voxel
+matching makes boundary F1 brutal, or that you dropped a column from a report last
+week and why. Per-repository context cannot close that gap, because it is scoped to
+the repository it lives in. The gap is **cross-project** and **personal**.
 
-Per-repository context — a rules file, a codebase index — cannot close that gap
-and structurally never will, because it is scoped to the repository it lives
-in. The gap is **cross-project** and **personal**.
+A memory that fills the gap by guessing makes things worse. So the design rules are
+about restraint:
 
-## What it does
+1. **Verbatim and cited.** What is served is copied from a source, with the file and
+   line numbers (or commit, page, cell, turn, URL). Nothing is summarised.
+2. **Relevant or silent.** A passage is served only if it covers the question's
+   distinctive terms, including its most specific one. Ask about something you have
+   never written about and the answer is nothing, not the nearest unrelated text.
+3. **Private by construction.** Everything stays on your machine. Credentials,
+   identity documents and personal identifiers never enter the index. Browser
+   reading is opt-in and allow-listed.
 
-Two kinds of memory, separated by what it costs to be wrong about them.
+## See it
 
-| | **Profile** | **Episodic** |
-|---|---|---|
-| Content | how you work, what you reach for, what you abandoned | what happened, on which project, when, why |
-| Volume | 50–200 statements | thousands of records |
-| Written by | a human, always | continuous ingestion |
-| Injected | every task, fingerprint-filtered | only when the gate fires |
-| Wrong record costs | every future task | one task |
-| Confidence bar | ≥ 0.85 to activate | ≥ 0.6 to serve |
+```bash
+projectmind demo        # a guided tour on a fictional workspace; touches nothing of yours
+```
 
-An agent calls one tool, `get_context(prompt, project_path)`, and gets back at
-most 2300 tokens — or nothing, which is a correct and common answer.
+Abridged output:
+
+```
+ 3/7  Your own git history
+ you ask   Why did we drop the profit factor column?
+ -> git://ledger-desk/commit/c4a9274 (2026-10-30)
+    | [failure] drop the profit factor column from the variations table
+    | outcome: fixed in this commit
+
+ 4/7  Knowledge from another project
+ you ask   How should the client back off when the provider rate limits us?   (in pulse-api)
+ -> echo-notes/DECISIONS.md:1-7
+    | When the provider rate limits us (HTTP 429), the client backs off exponentially with
+    | jitter, capped at 30 seconds, and gives up after five attempts. ...
+
+ 7/7  Nothing to say
+ you ask   Tune the Kubernetes ingress certificate rotation
+ -> nothing served   (no passage covers the question)
+```
+
+## What it reads
+
+| Source | Cited as |
+|---|---|
+| Git history, incrementally | commit URL and date |
+| Notes, plans, READMEs, `CLAUDE.md` logs | `path:first-last` (exact lines) |
+| Scripts (header comments, docstrings), training logs (result lines), small result files | `path:first-last` |
+| Notebooks (markdown, code headers, text outputs) | `notebook.ipynb (cell 7)` |
+| PDF, Word, PowerPoint | `file.pdf (page 3)`, `(slide 2)` |
+| Claude Code sessions: what you asked and the closing reply | `session.jsonl (turn 19, date)` |
+| Browser history and pages (Edge and Chrome) | the page URL |
+
+Details, and what is never read, in [docs/sources.md](docs/sources.md). The privacy
+guarantees, each backed by a test, are in [docs/privacy.md](docs/privacy.md).
 
 ## Measured
 
-Scored against 40 hand-labelled queries ([`eval/queries.yaml`](eval/queries.yaml)),
-ten of which must return **nothing**. Full method and caveats in
-[docs/evaluation.md](docs/evaluation.md).
+On **my own material** (about 9,000 documents and 27,000 passages: git history,
+competition logs, notebooks, PDFs, sessions, browsing), 30 questions I wrote about
+real projects, 10 of them about topics that appear nowhere in the material:
 
-| Metric | Target | Result | |
-|---|---|---|---|
-| Gate precision (inject when useful, not when not) | ≥ 0.80 | **1.000** | met |
-| Retrieval precision @5 | ≥ 0.70 | **0.750** | met |
-| Cross-project hit rate | ≥ 0.30 | **0.300** | met |
-| False injection rate | ≤ 0.10 | **0.174** | **missed** |
-| Near-misses served (`forbidden` labels) | — | 0.000 | |
-| Bundle size | ≤ 2300 tokens | 667 max, 384 mean | |
-| Front-door latency | — | 11 ms p95 | |
+| | |
+|---|---|
+| Correct source cited | **0.90** (18 of 20 answerable) |
+| Silent on absent topics | **1.00** (10 of 10); false injection **0.00** |
+| Tokens per answer / p95 latency | 551 / 102 ms in process |
 
-**The miss is real and not rounded away.** Of 23 episodic records served across
-the whole set, four are on-topic but not in the label list; none are the
-planted near-misses. Every configuration that pushed the rate under 0.15 also
-dropped precision below 0.70 or the cross-project rate below 0.30 — the three
-move against each other, and
-[the analysis says exactly what each alternative cost](docs/evaluation.md#phase-4-results-including-what-was-missed).
+Read the caveats in [docs/evaluation.md](docs/evaluation.md#v020-measured-on-real-material):
+I labelled these after seeing the index, 30 queries is small, and precision-first
+retrieval returns nothing when you ask in words your notes never use.
 
-On this machine's own history: **11 repositories, 190 commits, 82 episodic
-records** in 1.7 seconds, with no network call and no API token. The reflection
-loop's entity prefilter discards **99.1%** of statement-record pairs before any
-rule runs, which is what makes contradiction detection affordable at all.
+On the 40-query synthetic set (clock pinned, reproducible): gate precision 1.00,
+precision@5 0.795, cross-project hit rate 0.35, **false injection 0.323 against a
+target of 0.10, which is missed**. That figure and the figures previously published
+for it could not be reproduced: v0.1.0 never gave its clock to the retriever, so its
+evaluation drifted with the date. This is documented, not rounded away.
 
-## Quickstart
+## Quickstart (Windows, Python 3.11+)
 
-Needs Python 3.11+. No database server, no API key, no network.
-
-```bash
+```powershell
 git clone https://github.com/ParthBiyani/ProjectMind.git
 cd ProjectMind
-uv venv && uv pip install -e ".[mcp,reflection]"
+py -m venv .venv
+.venv\Scripts\python -m pip install -e ".[mcp,docs]"
+.venv\Scripts\Activate.ps1                   # so `projectmind` is on your PATH
 
-projectmind init                       # create the store, load 50 starter statements
-projectmind profile review             # approve the ones you agree with
-projectmind ingest local ~/Projects    # read your git history, offline
-projectmind install claude-code        # wire in the hook and the MCP server
-projectmind doctor                     # confirm
+projectmind demo                              # see it first
+projectmind init                              # create the store, load the starter profile
+projectmind profile review                    # the starter statements describe the author: approve
+                                              # what is true of you, then add your own with `profile add`
+projectmind sources add "D:/Projects"         # what to read
+projectmind sources add "~/.claude/projects" --kind transcripts --depth 0
+projectmind sync                              # read it (minutes the first time)
+projectmind install claude-code               # hook + MCP server, with backups
+projectmind schedule install                  # start the daemon at logon
+projectmind doctor                            # it runs the hook the way your agent would
 ```
 
-Restart your agent. That is the whole setup.
+Before pointing it at a folder, look at what is in it: do not add folders of personal
+or financial documents. It skips obvious ones by name and drops identifiers, but the
+safest source is one you chose on purpose. `projectmind sources audit` re-checks
+what is already indexed.
 
-> Seeded statements load as **proposals** and are never served until approved.
-> A profile statement is injected into every task, so nothing gets in without a
-> human saying yes. Read them, then `projectmind seed --activate-all` if you
-> accept the lot.
+Ask it something:
 
-## See what it would inject
-
-```bash
-$ projectmind context "Add Supabase auth to this Flutter screen" --project .
-
-## ProjectMind context
-
-### How this developer works
-- Reaches for Flutter for anything with a client-side UI...
-- Uses Supabase for backend-as-a-service, getting auth, Postgres and storage...
-- Abandoned Firebase and Firestore for anything with relational reads...
-
-481 tokens (481 profile + 0 episodic) · 22.3 ms · profile slice: 15 of 50
-entities matched: auth, flutter, supabase
+```powershell
+projectmind context "Why did we drop the profit factor column?" --project D:\Projects\MyApp
+projectmind history list            # everything it was asked and what it answered
+projectmind history show <id>       # why each passage was served or cut
+projectmind history replay <id>     # re-run an old question on today's code
 ```
 
-```bash
-$ projectmind context "Rename this variable" --project .
-nothing injected — skipped: trivial prompt (mechanical edit)
+### Browser (optional, off by default)
+
+```powershell
+projectmind browser scan --dry-run   # what would be stored, storing nothing
+projectmind browser enable           # allow-listed documentation sites only
 ```
 
-## How it works
+For page text, load the extension (Edge or Chrome) as described in
+[extension/README.md](extension/README.md). Its manifest limits it to the same
+allow-list, so the browser itself prevents it reading anything else.
+
+## How it answers
 
 ```
-              ┌─────────────────────────────────────────────────┐
-  prompt ────►│                  get_context                    │
-project_path  │                (the front door)                 │
-              └───────┬─────────────────────────────┬───────────┘
-                      ▼                             ▼
-             ┌─────────────────┐          ┌───────────────────┐
-             │   fingerprint   │          │  prompt analysis  │
-             │ manifests, deps │          │ task type, named  │
-             │ cached, no LLM  │          │ entities, novelty │
-             └────────┬────────┘          └─────────┬─────────┘
-                      └──────────┬──────────────────┘
-                                 ▼
-                        ┌─────────────────┐
-                        │ relevance gate  │  may return nothing
-                        └────────┬────────┘
-                                 ▼
-                        ┌─────────────────┐
-                        │  BM25 + vector  │  fused, then cut
-                        └────────┬────────┘
-                                 ▼
-                        ┌─────────────────┐
-                        │ rank and budget │  cross-project boost, hard caps
-                        └────────┬────────┘
-                                 ▼
-                          ContextBundle
+ hook ──localhost──► daemon (warm database)
+                       │
+                       ▼
+ prompt ──► skip mechanical edits ──► profile slice (<= 800 tokens)
+                       ├────────────► history records (gate + hybrid retrieval)
+                       └────────────► source passages: rarity-weighted coverage,
+                                      most specific term required, deduplicated
+                                                │
+                                   hard budget: 2300 tokens total
+                                                │
+                                  verbatim excerpts + citations
 ```
 
-Four properties hold everywhere:
-
-1. **One front door.** Gating, ranking and budgeting are server-side, so
-   retrieval quality does not vary by which agent is driving — and can be
-   measured at all.
-2. **Degrade to nothing, never to wrong.** A missing key, an unreachable
-   database or an unparsable manifest reduces what is served. It never turns a
-   correct answer into an incorrect one.
-3. **Provenance on everything.** Every served record links to the commit or
-   pull request it came from. An extracted *why* is labelled as inference.
-4. **Nothing interrupts a working session.** All human review is batched.
-
-`docs/architecture.md` has the module map.
-
-## Default injection, honestly stated
-
-MCP is pull-based: a server cannot push into a context window. So "injected by
-default" is one mandatory front-door tool plus a client hook. `projectmind
-install claude-code` adds a `UserPromptSubmit` hook whose stdout becomes
-context, making the call invisible. Where a client has no hook,
-`projectmind install rules` prints a line for the rules file.
-
-If neither is wired, the agent gets no memory and behaves normally. The
-fallback is always toward silence. Details and the exact files touched:
-[docs/integration.md](docs/integration.md).
+The module map and the design rules are in [docs/architecture.md](docs/architecture.md);
+agent wiring in [docs/integration.md](docs/integration.md).
 
 ## Commands
 
 | Command | What it does |
 |---|---|
-| `projectmind init` | Create the store, run migrations, load the starter profile |
-| `projectmind context <prompt>` | Show exactly what the agent would receive |
-| `projectmind doctor` | Check storage, embeddings, MCP, hooks, git |
-| `projectmind report` | Injection rate, tokens served, latency, feedback |
-| `projectmind profile list / review / show / sweep` | Inspect and curate the profile |
-| `projectmind fingerprint scan <dir> --children` | Index a folder of repositories |
-| `projectmind fingerprint neighbours` | Which projects look like this one, and why |
-| `projectmind ingest local <dir>` | Read git history offline |
-| `projectmind ingest github` | Read merged pull requests (needs `GITHUB_TOKEN`) |
-| `projectmind ingest status / show` | What episodic memory holds |
-| `projectmind review run / start / history` | The reflection loop and monthly review |
-| `projectmind eval run --system live` | Score the front door against the query set |
-| `projectmind install claude-code` | Hooks and MCP registration, with backups |
-| `projectmind mcp` | Run the MCP server on stdio |
+| `demo` | Guided tour on a fictional workspace (`--real -p "question"` asks your memory) |
+| `init`, `doctor`, `report` | Set up, verify (runs the hook), and measure what memory did |
+| `sources add / list / scan / remove / search / audit` | Choose what is read; query the raw index; re-check it against the privacy rules |
+| `sync` | One incremental pass over git, folders, sessions and browser |
+| `serve`, `daemon status / stop / sync / token`, `schedule install / remove / status` | The local daemon and starting it at logon |
+| `context "<prompt>" -p <dir>` | Show exactly what the agent would receive |
+| `history list / show / replay / label / export / purge` | Everything asked and answered |
+| `profile list / add / edit / remove / review / seed / sweep` | The always-on statements about how you work |
+| `browser status / enable / disable / allow / deny / scan` | Browser history, allow-listed |
+| `install claude-code / rules / status` | Hook and MCP registration, with backups |
+| `eval run / compare / real` | The synthetic set, and your own questions |
+| `ingest local / github`, `fingerprint`, `review` | Git ingestion, project similarity, the monthly review |
+| `mcp`, `export`, `hook` | MCP server on stdio, profile backup, hook entry points |
 
-## MCP surface
+## MCP tools
 
 | Tool | Purpose |
 |---|---|
-| `get_context(prompt, project_path, ignore_profile=false)` | The front door. Call once per task. |
+| `get_context(prompt, project_path)` | The front door. Skip it when a hook already injected a block. |
 | `search_memory(query, project_path, limit)` | Direct search, when the user asks what they did before. |
-| `memory_feedback(bundle_id, useful, note)` | Whether a bundle helped. The only source of a live false-injection number. |
-| `memory_stats(days)` | Usage and assist figures as JSON. |
+| `memory_feedback(bundle_id, useful, note)` | Whether a block helped, by the id in its marker. |
+| `memory_stats(days)` | Usage figures as JSON. |
 
 ## Configuration
 
-Everything is optional. Copy [`.env.example`](.env.example) to `.env`.
+Read from the environment and from `~/.projectmind/.env`; never from a project's `.env`.
 
 | Variable | Default | Notes |
 |---|---|---|
-| `PROJECTMIND_HOME` | `~/.projectmind` | Database, cache, logs |
+| `PROJECTMIND_HOME` | `~/.projectmind` | Database, sources, logs, token |
 | `PROJECTMIND_DB_URL` | unset | A `postgresql://` URL switches to Postgres + pgvector |
-| `ANTHROPIC_API_KEY` | unset | Enables LLM extraction; heuristics are used without it |
-| `GITHUB_TOKEN` | unset | Only for the GitHub source; local ingestion needs none |
-| `PROJECTMIND_EXCLUDED_REPOS` | empty | Globs never read, checked before any request |
-| `PROJECTMIND_CROSS_PROJECT_BOOST` | `1.45` | Multiplier on results from other repositories |
-| `PROJECTMIND_EMBEDDING_PROVIDER` | `auto` | `fastembed` when installed, else a deterministic fallback |
+| `PROJECTMIND_AUTHORS` | git `user.email` | Comma-separated emails whose commits are yours |
+| `PROJECTMIND_EXCLUDED_REPOS` | empty | Globs never read; their interactions are stored as `minimal` |
+| `PROJECTMIND_HISTORY` | `full` | `full`, `minimal` (hashed metadata) or `off` |
+| `PROJECTMIND_EMBEDDING_PROVIDER` | `auto` | Thresholds are calibrated for `hashing`; set it explicitly |
+| `PROJECTMIND_DAEMON_PORT` | `47615` | Fixed so the browser extension can find it |
+| `PROJECTMIND_DAEMON_SYNC_MINUTES` | `30` | `0` turns the scheduler off |
+| `PROJECTMIND_EVIDENCE_COVERAGE_FLOOR` | `0.6` | How much of a question a passage must cover |
+| `GITHUB_TOKEN` | unset | Only for `ingest github` |
 
 Full list with rationale: [`config.py`](src/projectmind/config.py).
 
 ## Storage
 
-SQLite by default, because a memory server that needs a daemon is unavailable
-exactly when you reach for it. Point `PROJECTMIND_DB_URL` at Postgres and the
-same code runs against pgvector instead — one `Store` protocol, two backends,
-one parity suite that runs against both in CI.
+SQLite by default (a memory that needs a daemon is unavailable exactly when you reach
+for it); Postgres with pgvector behind the same `Store` protocol and the same parity
+suite, run against a real container in CI.
 
-```bash
-docker compose up -d
-export PROJECTMIND_DB_URL=postgresql://projectmind:projectmind@localhost:5433/projectmind
-projectmind init
-```
+## Status and known gaps
 
-## Privacy
+v0.2.0. Details in [docs/roadmap.md](docs/roadmap.md#known-gaps-after-v020).
 
-- Prompts are **hashed, never stored**. The bundle log keeps a digest, a word
-  count, the served record ids and the gate's reason — enough to score the
-  gate, not enough to reconstruct a session.
-- **No network call on the retrieval path at all.**
-- Repository content reaches an external model only during ingestion, only if
-  `ANTHROPIC_API_KEY` is set, and never for repositories matching
-  `PROJECTMIND_EXCLUDED_REPOS`, which is checked before any request is made.
-
-## Roadmap
-
-| Phase | Status |
-|---|---|
-| 0 — Eval harness | complete |
-| 1 — Profile memory, always-on injection | complete |
-| 2 — Project fingerprinting and the gate | complete |
-| 3 — Cross-project episodic ingestion | complete |
-| 4 — Retrieval quality | 3 of 4 targets met |
-| 5 — Reflection loop and monthly review | complete; acceptance rate not yet measurable |
-| 6 — Browser and AI chat capture | designed, deliberately unbuilt |
-
-[docs/roadmap.md](docs/roadmap.md) records what each phase measured.
+- Vocabulary mismatch means silence: retrieval is lexical with stemming.
+- The history-record path misses its false-injection target (see above).
+- LLM-written notes are not implemented; nothing in this version calls a model.
+- The browser extension is tested for logic and manifest safety, not yet in a browser in CI.
 
 ## Development
 
-```bash
-uv pip install -e ".[dev]"
-pytest                  # 394 tests; the Postgres half skips without a server
-ruff check . && ruff format --check .
+```powershell
+.venv\Scripts\python -m pip install -e ".[dev]"
+pytest                  # 730+ tests; the Postgres half skips without a server
+ruff check . ; ruff format --check .
 mypy                    # strict
+node --test extension/test/lib.test.js
 ```
 
-CI runs lint, strict type checking, tests on 3.11 and 3.12, and the storage
-parity suite against a real pgvector container.
+CI runs lint, strict type checking, tests on Python 3.11, 3.12 and 3.13, a Windows
+job, and the storage parity suite against a pgvector container.
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT. See [LICENSE](LICENSE).
