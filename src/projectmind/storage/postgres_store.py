@@ -559,6 +559,64 @@ class PostgresStore(Store):
         )
         return removed
 
+    def put_chunk_vectors(self, model: str, items: Sequence[tuple[UUID, bytes]]) -> int:
+        if not items:
+            return 0
+        with self._conn.cursor() as cur:
+            cur.executemany(
+                "INSERT INTO chunk_vectors (chunk_id, model, dim, vector) "
+                "VALUES (%s::uuid, %s, %s, %s) "
+                "ON CONFLICT (chunk_id, model) DO UPDATE SET dim = EXCLUDED.dim, "
+                "vector = EXCLUDED.vector",
+                [(str(chunk_id), model, len(blob) // 2, blob) for chunk_id, blob in items],
+            )
+        return len(items)
+
+    def chunks_without_vectors(self, model: str, limit: int) -> list[ChunkRecord]:
+        rows = self._query(
+            """
+            SELECT c.id, c.document_id, c.ordinal, c.heading, c.text, c.start_line,
+                   c.end_line, c.locator
+            FROM chunks c
+            LEFT JOIN chunk_vectors v ON v.chunk_id = c.id AND v.model = %s
+            WHERE v.chunk_id IS NULL
+            ORDER BY c.id
+            LIMIT %s
+            """,
+            (model, int(limit)),
+        )
+        return [
+            ChunkRecord(
+                id=UUID(str(row["id"])),
+                document_id=UUID(str(row["document_id"])),
+                ordinal=int(row["ordinal"]),
+                text=row["text"],
+                heading=row["heading"] or "",
+                start_line=int(row["start_line"]),
+                end_line=int(row["end_line"]),
+                locator=row["locator"] or "",
+            )
+            for row in rows
+        ]
+
+    def iter_chunk_vectors(self, model: str) -> Iterator[tuple[UUID, bytes]]:
+        last = "00000000-0000-0000-0000-000000000000"
+        while True:
+            rows = self._query(
+                "SELECT chunk_id, vector FROM chunk_vectors "
+                "WHERE model = %s AND chunk_id > %s::uuid ORDER BY chunk_id LIMIT 2000",
+                (model, last),
+            )
+            if not rows:
+                return
+            for row in rows:
+                yield UUID(str(row["chunk_id"])), bytes(row["vector"])
+            last = str(rows[-1]["chunk_id"])
+
+    def count_chunk_vectors(self, model: str) -> int:
+        rows = self._query("SELECT count(*) AS n FROM chunk_vectors WHERE model = %s", (model,))
+        return int(rows[0]["n"])
+
     def document_projects(self) -> list[str]:
         rows = self._query("SELECT DISTINCT project_key FROM documents ORDER BY project_key")
         return [row["project_key"] for row in rows]
