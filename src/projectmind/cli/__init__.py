@@ -16,6 +16,7 @@ import typer
 
 from projectmind import __version__
 from projectmind.cli import (
+    browser_cmd,
     daemon_cmd,
     eval_cmd,
     fingerprint_cmd,
@@ -49,6 +50,7 @@ app.add_typer(ingest_cmd.app, name="ingest")
 app.add_typer(review_cmd.app, name="review")
 app.add_typer(sources_cmd.app, name="sources")
 app.add_typer(daemon_cmd.app, name="daemon")
+app.add_typer(browser_cmd.app, name="browser")
 app.add_typer(schedule_cmd.app, name="schedule")
 app.command("serve")(daemon_cmd.serve)
 

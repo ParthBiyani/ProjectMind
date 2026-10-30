@@ -22,6 +22,7 @@ from projectmind.config import Settings
 from projectmind.ingestion.pipeline import IngestionPipeline, IngestionReport
 from projectmind.logging import get_logger
 from projectmind.models import utcnow
+from projectmind.sources.browser import BrowserConfig, BrowserReport, index_history
 from projectmind.sources.config import SourcesConfig
 from projectmind.sources.indexer import DEFAULT_MIN_AGE_SECONDS, KnowledgeIndexer, ScanReport
 from projectmind.storage import Store
@@ -39,6 +40,7 @@ SINCE_MARGIN = timedelta(days=2)
 class SyncReport:
     git: list[IngestionReport] = field(default_factory=list)
     scans: list[ScanReport] = field(default_factory=list)
+    browser: BrowserReport | None = None
     seconds: float = 0.0
 
     @property
@@ -50,8 +52,9 @@ class SyncReport:
         return sum(report.indexed for report in self.scans)
 
     def summary(self) -> str:
+        pages = f", {self.browser.indexed} pages" if self.browser else ""
         return (
-            f"{self.records_stored} new git records, {self.files_indexed} files read "
+            f"{self.records_stored} new git records, {self.files_indexed} files read{pages} "
             f"in {self.seconds:.1f}s"
         )
 
@@ -121,6 +124,10 @@ def sync(
     if files:
         indexer = KnowledgeIndexer(store, min_age_seconds=min_age_seconds)
         report.scans = [indexer.scan_root(root) for root in config.roots]
+
+    browser = BrowserConfig.load(settings.home)
+    if files and browser.enabled:
+        report.browser = index_history(store, browser)
 
     _save_state(settings.home, state)
     report.seconds = round(time.perf_counter() - started, 2)
