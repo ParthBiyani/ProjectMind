@@ -312,3 +312,13 @@ class TestPhaseTwoExitCriterion:
         self, live_report: ScoreReport
     ) -> None:
         assert live_report.p95_latency_ms < 250
+
+
+class TestExplainIsNotAlwaysTrivial:
+    def test_explaining_code_on_screen_is_trivial(self) -> None:
+        for prompt in ("Explain this", "Explain the function", "Explain the stack trace"):
+            assert analyse(prompt).is_trivial, prompt
+
+    def test_explaining_something_from_your_own_past_is_not(self) -> None:
+        analysis = analyse("Explain the autonomous trading platform I called Kairos")
+        assert not analysis.is_trivial
