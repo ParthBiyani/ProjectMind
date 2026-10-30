@@ -25,6 +25,7 @@ from projectmind.config import Settings
 from projectmind.evaluation.fixtures import FixtureCorpus, FixtureProject, FixtureRecord
 from projectmind.evaluation.spec import EvalQuery, RetrievalResult
 from projectmind.models import (
+    ContextBundle,
     EpisodicRecord,
     Fingerprint,
     Project,
@@ -34,6 +35,7 @@ from projectmind.models import (
 )
 from projectmind.profile.seed import seed_profile
 from projectmind.service import MemoryService
+from projectmind.sources.records import index_records
 from projectmind.storage import SqliteStore, Store
 from projectmind.storage.embeddings import EmbeddingProvider, HashingEmbedder
 
@@ -122,6 +124,9 @@ def live_service(
         seed_profile(service.profile, activate=True)
     if with_corpus:
         load_corpus(store)
+        # The front door serves history records through two paths; score both, as a
+        # user would experience them.
+        index_records(store)
     try:
         yield service
     finally:
@@ -147,6 +152,7 @@ class LiveSystem:
         self.corpus = corpus or FixtureCorpus.load()
         self._roots: dict[str, str] = {}
         self._by_uuid = {fixture_uuid(record.id): record.id for record in self.corpus.records}
+        self._by_url = {record.source_url: record.id for record in self.corpus.records}
 
     def __call__(self, query: EvalQuery) -> RetrievalResult:
         bundle = self.service.get_context(
@@ -158,15 +164,23 @@ class LiveSystem:
         return RetrievalResult(
             query_id=query.id,
             profile_ids=tuple(str(item.id) for item in bundle.profile),
-            episodic_ids=tuple(
-                self._by_uuid.get(item.id, str(item.id)) for item in bundle.episodic
-            ),
+            episodic_ids=self._served_ids(bundle),
             task_type=bundle.task_type,
             profile_tokens=bundle.profile_tokens,
-            episodic_tokens=bundle.episodic_tokens,
+            episodic_tokens=bundle.episodic_tokens + bundle.evidence_tokens,
             latency_ms=bundle.latency_ms,
             skipped_reason=bundle.gate_reason if bundle.is_empty else None,
         )
+
+    def _served_ids(self, bundle: ContextBundle) -> tuple[str, ...]:
+        """Fixture ids of everything served from history, by either path."""
+        served = [self._by_uuid.get(item.id, str(item.id)) for item in bundle.episodic]
+        for item in bundle.evidence:
+            url = item.citation.split(" (")[0]
+            fixture = self._by_url.get(url)
+            if fixture is not None and fixture not in served:
+                served.append(fixture)
+        return tuple(served)
 
     def _root_for(self, project_key: str) -> str:
         """A path the service can resolve to the right fixture project.

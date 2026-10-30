@@ -63,18 +63,6 @@ RECORD_TYPES_FOR_TASK: dict[TaskType, tuple[RecordType, ...]] = {
     ),
 }
 
-#: Task types that are *about* choosing, and therefore benefit from what was
-#: chosen elsewhere even when the prompt names nothing specific.
-EXPLORATORY = frozenset({TaskType.ARCHITECT, TaskType.EXPLORE})
-
-#: Task types worth searching even when the prompt names nothing memory holds.
-#: A refactor is precedent-hungry by nature — "make this reproducible" names no
-#: library but is answered almost entirely by what went wrong last time — and a
-#: debug prompt describes its failure in prose, which is what the index reads.
-#: Allowing the search is not the same as serving something: retrieval still has
-#: to clear the confidence bar, and an empty result stays empty.
-SEARCH_WITHOUT_ENTITIES = EXPLORATORY | {TaskType.DEBUG, TaskType.REFACTOR}
-
 
 @dataclass(frozen=True, slots=True)
 class GateDecision:
@@ -141,37 +129,16 @@ def decide(
             reason=f"prompt names {', '.join(analysis.entities[:4])}",
         )
 
-    # Rule: architect and explore prompts are about choosing, so prior choices
-    # on similar projects are relevant even with nothing named.
-    if analysis.task_type in EXPLORATORY:
-        return GateDecision(
-            analysis=analysis,
-            inject_profile=True,
-            inject_episodic=True,
-            record_types=types,
-            cross_project_boost=boost * 1.2,
-            reason=f"{analysis.task_type} prompt, looking at similar projects",
-        )
-
-    # Rule: some task types are worth searching even unnamed.
-    if analysis.task_type in SEARCH_WITHOUT_ENTITIES:
-        subject = "past failures" if analysis.task_type is TaskType.DEBUG else "prior work"
-        return GateDecision(
-            analysis=analysis,
-            inject_profile=True,
-            inject_episodic=True,
-            record_types=types,
-            cross_project_boost=boost,
-            reason=f"{analysis.task_type} prompt, searching {subject}",
-        )
-
-    # Anything else: an implement prompt with nothing named. Searching here is
-    # how padding happens, so it does not.
+    # Nothing named. The history records are reached only through a named entity:
+    # searching them on a vague prompt ("what should I name this module?") is how
+    # unrelated records get served. Prompts that name nothing are still answered
+    # from the source passages, which serve only what covers the question.
+    # Measured on the synthetic set: false injection 0.375 -> 0.240.
     return GateDecision(
         analysis=analysis,
         inject_profile=True,
         inject_episodic=False,
-        reason=f"{analysis.task_type} prompt names nothing memory holds",
+        reason=f"{analysis.task_type} prompt names nothing the history gate knows",
     )
 
 

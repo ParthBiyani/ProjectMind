@@ -159,14 +159,18 @@ class TestGatingRules:
         A decision without the failure that followed it reads as complete and
         is not.
         """
-        decision = decide(analyse("How should I structure this service?"), settings=SETTINGS)
+        decision = decide(
+            analyse("How should I structure this supabase service?", ["supabase"]),
+            settings=SETTINGS,
+        )
         assert RecordType.DECISION in decision.record_types
         assert RecordType.FAILURE in decision.record_types
 
     def test_a_debug_prompt_still_excludes_decisions(self) -> None:
         """The asymmetry is deliberate: a stack trace is not answered by a choice."""
         decision = decide(
-            analyse("It crashes on startup with a null reference."), settings=SETTINGS
+            analyse("It crashes on startup with a null reference in supabase.", ["supabase"]),
+            settings=SETTINGS,
         )
         assert RecordType.FAILURE in decision.record_types
         assert RecordType.DECISION not in decision.record_types
@@ -182,16 +186,26 @@ class TestGatingRules:
         assert decision.inject_profile is True
         assert decision.inject_episodic is False
 
-    def test_a_refactor_prompt_searches_precedent_even_unnamed(self) -> None:
-        decision = decide(
-            analyse("Refactor this so the preprocessing is reproducible."), settings=SETTINGS
-        )
-        assert decision.inject_episodic is True
+    def test_a_prompt_naming_nothing_never_searches_history_records(self) -> None:
+        """Vague prompts used to search anyway ("what should I name this module?"),
+        and that is how unrelated records got served. The source passages still
+        answer them, but only when something covers the question."""
+        for prompt in (
+            "Refactor this so the preprocessing is reproducible.",
+            "How should I structure this?",
+            "It crashes on startup.",
+        ):
+            decision = decide(analyse(prompt), settings=SETTINGS)
+            assert decision.inject_episodic is False, prompt
+            assert decision.inject_profile is True, prompt
 
-    def test_exploratory_prompts_get_a_stronger_cross_project_boost(self) -> None:
-        exploratory = decide(analyse("How should I structure this?"), settings=SETTINGS)
-        debugging = decide(analyse("It crashes on startup."), settings=SETTINGS)
-        assert exploratory.cross_project_boost > debugging.cross_project_boost
+    def test_a_named_entity_keeps_the_stronger_cross_project_boost_default(
+        self, vocabulary: list[str]
+    ) -> None:
+        decision = decide(
+            analyse("How should I structure this supabase app?", vocabulary), settings=SETTINGS
+        )
+        assert decision.cross_project_boost == SETTINGS.cross_project_boost
 
 
 def served(what: str, tokens_hint: str = "") -> ServedRecord:
