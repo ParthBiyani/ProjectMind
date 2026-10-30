@@ -135,8 +135,8 @@ def make_statement(**overrides: object) -> ProfileStatement:
 
 class TestMigrations:
     def test_migrate_is_idempotent(self, store: Store) -> None:
-        assert store.migrate() == 4
-        assert store.migrate() == 4
+        assert store.migrate() == 5
+        assert store.migrate() == 5
 
 
 class TestProjects:
@@ -695,3 +695,38 @@ class TestChunkAudit:
     def test_deleting_nothing_is_fine(self, store: Store) -> None:
         assert store.delete_chunks([]) == 0
         assert store.delete_chunks([uuid4()]) == 0
+
+
+class TestChunkVectors:
+    def index(self, store: Store) -> list[ChunkRecord]:
+        document = make_document("D:/p/kairos/vectors.md")
+        chunks = make_chunks(document, "first passage", "second passage", "third passage")
+        store.replace_document(document, chunks)
+        return chunks
+
+    def test_vectors_roundtrip_by_model(self, store: Store) -> None:
+        chunks = self.index(store)
+        blob = bytes([1, 2, 3, 4])
+        assert store.put_chunk_vectors("m", [(chunks[0].id, blob)]) == 1
+        assert store.count_chunk_vectors("m") == 1
+        assert store.count_chunk_vectors("other") == 0
+        assert dict(store.iter_chunk_vectors("m")) == {chunks[0].id: blob}
+
+    def test_a_vector_is_replaced_not_duplicated(self, store: Store) -> None:
+        chunks = self.index(store)
+        store.put_chunk_vectors("m", [(chunks[0].id, b"\x01\x02")])
+        store.put_chunk_vectors("m", [(chunks[0].id, b"\x03\x04")])
+        assert dict(store.iter_chunk_vectors("m")) == {chunks[0].id: b"\x03\x04"}
+
+    def test_chunks_without_vectors_excludes_the_embedded(self, store: Store) -> None:
+        chunks = self.index(store)
+        store.put_chunk_vectors("m", [(chunks[0].id, b"\x01\x02")])
+        waiting = {chunk.id for chunk in store.chunks_without_vectors("m", 10)}
+        assert waiting == {chunks[1].id, chunks[2].id}
+        assert len(store.chunks_without_vectors("m", 1)) == 1
+
+    def test_vectors_go_with_their_document(self, store: Store) -> None:
+        chunks = self.index(store)
+        store.put_chunk_vectors("m", [(chunk.id, b"\x01\x02") for chunk in chunks])
+        store.delete_chunks([chunks[0].id])
+        assert store.count_chunk_vectors("m") == 2

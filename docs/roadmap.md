@@ -129,9 +129,12 @@ extractor and its own evaluation.
 
 ## Known gaps after v0.2.0
 
-- **Vocabulary mismatch is silence.** Retrieval is lexical with stemming. A question
-  in words the notes never use returns nothing. An opt-in embedding reranker is the
-  likely fix, and needs its own calibration.
+- **Vocabulary mismatch is mostly still silence.** Retrieval is lexical with
+  stemming. Opt-in [semantic search](semantic.md) recovers one of the four reworded
+  misses automatically and three more through the explicit search, but a similarity
+  score cannot separate a paraphrase from a neighbour in the same field, so the
+  automatic bar stays high. A learned reranker over a labelled history is the next
+  step, and needs real usage to train on.
 - **The history-record path still has a closed-vocabulary gate** and misses its
   false-injection target (0.208 against 0.10). Commits are now also reachable through
   the open-vocabulary path, which makes this less important in practice, not

@@ -112,6 +112,32 @@ def check_embeddings(settings: Settings) -> Finding:
     return Finding("embeddings", Status.OK, detail)
 
 
+def check_semantic(settings: Settings) -> Finding:
+    from projectmind import semantic
+
+    if not settings.semantic:
+        return Finding(
+            "semantic", Status.OK, "off; matching is by words (projectmind semantic enable)"
+        )
+    if not semantic.available():
+        return Finding(
+            "semantic", Status.WARN, "on, but not installed: pip install 'projectmind[semantic]'"
+        )
+    store = open_store(settings)
+    try:
+        index = semantic.SemanticIndex(store)
+        waiting = index.pending()
+    finally:
+        store.close()
+    if waiting:
+        return Finding(
+            "semantic",
+            Status.WARN,
+            f"{waiting} passages not embedded yet (projectmind semantic index)",
+        )
+    return Finding("semantic", Status.OK, "on; every passage is embedded")
+
+
 def check_llm(settings: Settings) -> Finding:
     if settings.has_llm:
         return Finding(
@@ -306,6 +332,7 @@ def run_all(settings: Settings) -> list[Finding]:
     findings += [
         check_mcp_sdk(),
         check_embeddings(settings),
+        check_semantic(settings),
         check_llm(settings),
         check_git(),
         *check_hooks(),

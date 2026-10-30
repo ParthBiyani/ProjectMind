@@ -554,6 +554,22 @@ class Store(ABC):
     def delete_chunks(self, chunk_ids: Sequence[UUID]) -> int:
         """Remove chunks (and their search entries). Returns how many existed."""
 
+    # --- semantic vectors ----------------------------------------------------
+    @abstractmethod
+    def put_chunk_vectors(self, model: str, items: Sequence[tuple[UUID, bytes]]) -> int:
+        """Store float16 vectors for chunks. Returns how many were written."""
+
+    @abstractmethod
+    def chunks_without_vectors(self, model: str, limit: int) -> list[ChunkRecord]:
+        """Chunks that have no vector from `model` yet, oldest first."""
+
+    @abstractmethod
+    def iter_chunk_vectors(self, model: str) -> Iterator[tuple[UUID, bytes]]:
+        """Every stored vector for `model`, streamed."""
+
+    @abstractmethod
+    def count_chunk_vectors(self, model: str) -> int: ...
+
     @abstractmethod
     def document_projects(self) -> list[str]:
         """Every project key that has at least one document."""

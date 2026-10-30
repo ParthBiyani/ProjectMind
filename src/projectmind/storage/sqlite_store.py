@@ -534,6 +534,58 @@ class SqliteStore(Store):
             )
         return removed
 
+    def put_chunk_vectors(self, model: str, items: Sequence[tuple[UUID, bytes]]) -> int:
+        if not items:
+            return 0
+        with self._conn:
+            self._conn.executemany(
+                "INSERT OR REPLACE INTO chunk_vectors (chunk_id, model, dim, vector) "
+                "VALUES (?, ?, ?, ?)",
+                [(str(chunk_id), model, len(blob) // 2, blob) for chunk_id, blob in items],
+            )
+        return len(items)
+
+    def chunks_without_vectors(self, model: str, limit: int) -> list[ChunkRecord]:
+        rows = self._conn.execute(
+            """
+            SELECT c.id, c.document_id, c.ordinal, c.heading, c.text, c.start_line,
+                   c.end_line, c.locator
+            FROM chunks c
+            LEFT JOIN chunk_vectors v ON v.chunk_id = c.id AND v.model = ?
+            WHERE v.chunk_id IS NULL
+            ORDER BY c.rowid
+            LIMIT ?
+            """,
+            (model, int(limit)),
+        ).fetchall()
+        return [
+            ChunkRecord(
+                id=UUID(str(row["id"])),
+                document_id=UUID(str(row["document_id"])),
+                ordinal=int(row["ordinal"]),
+                text=row["text"],
+                heading=row["heading"] or "",
+                start_line=int(row["start_line"]),
+                end_line=int(row["end_line"]),
+                locator=row["locator"] or "",
+            )
+            for row in rows
+        ]
+
+    def iter_chunk_vectors(self, model: str) -> Iterator[tuple[UUID, bytes]]:
+        cursor = self._conn.execute(
+            "SELECT chunk_id, vector FROM chunk_vectors WHERE model = ?", (model,)
+        )
+        while rows := cursor.fetchmany(2000):
+            for row in rows:
+                yield UUID(str(row["chunk_id"])), bytes(row["vector"])
+
+    def count_chunk_vectors(self, model: str) -> int:
+        row = self._conn.execute(
+            "SELECT count(*) AS n FROM chunk_vectors WHERE model = ?", (model,)
+        ).fetchone()
+        return int(row["n"])
+
     def document_projects(self) -> list[str]:
         rows = self._conn.execute(
             "SELECT DISTINCT project_key FROM documents ORDER BY project_key"

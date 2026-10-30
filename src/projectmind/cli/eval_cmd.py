@@ -125,6 +125,9 @@ def real(
     max_false_injection: float = typer.Option(
         1.0, help="Exit non-zero if the false injection rate is above this."
     ),
+    semantic: bool = typer.Option(
+        False, "--semantic/--lexical", help="Also match by meaning (needs `semantic index`)."
+    ),
 ) -> None:
     """Score the front door against questions about your own material.
 
@@ -140,6 +143,12 @@ def real(
     query_set = RealSet.from_yaml(path)
 
     with service() as memory:
+        if semantic:
+            from projectmind import semantic as semantic_module
+
+            if semantic_module.attach(memory) is None:
+                fail("no stored vectors; run `projectmind semantic index` first")
+                raise typer.Exit(code=1)
         report = run_real(memory, query_set)
 
     rendered = table("metric", "value", title=f"{report.name} · {report.queries} queries")

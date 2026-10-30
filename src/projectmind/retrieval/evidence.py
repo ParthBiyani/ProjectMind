@@ -26,12 +26,15 @@ import math
 import re
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from projectmind.config import Settings, get_settings
 from projectmind.logging import get_logger
 from projectmind.models import ServedEvidence
 from projectmind.storage import ChunkHit, Store
+
+if TYPE_CHECKING:  # pragma: no cover
+    from projectmind.semantic import SemanticIndex
 
 log = get_logger(__name__)
 
@@ -269,6 +272,18 @@ MISSING_TERM_CAP = 0.75
 NAMED_PROJECT_FLOOR = 0.35
 #: Two passages sharing this much of their vocabulary are the same passage.
 NEAR_DUPLICATE = 0.75
+#: Nearest passages considered when matching by meaning.
+SEMANTIC_CANDIDATES = 12
+#: A word is distinctive if it appears in at most this share of the passages.
+SEMANTIC_RARE_SHARE = 0.05
+SEMANTIC_RARE_MIN = 3
+#: An explicit search shows meaning matches down to this similarity, labelled as such.
+EXPLORE_FLOOR = 0.6
+
+
+def _overlap(left: frozenset[str] | set[str], right: frozenset[str] | set[str]) -> float:
+    union = left | right
+    return len(left & right) / len(union) if union else 0.0
 
 
 def question_terms(prompt: str) -> list[str]:
@@ -360,12 +375,34 @@ class Selection:
     named: frozenset[str] = frozenset()
 
 
+@dataclass(frozen=True, slots=True)
+class Found:
+    """One result of an explicit search, and how it was found."""
+
+    evidence: ServedEvidence
+    via: str  # "words" or "meaning"
+    similarity: float = 0.0
+
+
+def render_found(found: Found) -> str:
+    """A result as text: how it was found, where it is from, and the passage."""
+    how = "by words" if found.via == "words" else f"by meaning, similarity {found.similarity:.2f}"
+    item = found.evidence
+    return f"[{how}] {item.citation}\n{item.excerpt}"
+
+
 class EvidenceRetriever:
     """Answers "what do my own sources say about this?" with cited excerpts."""
 
-    def __init__(self, store: Store, settings: Settings | None = None) -> None:
+    def __init__(
+        self,
+        store: Store,
+        settings: Settings | None = None,
+        semantic: SemanticIndex | None = None,
+    ) -> None:
         self.store = store
         self.settings = settings or get_settings()
+        self.semantic = semantic
 
     def retrieve(
         self,
@@ -377,6 +414,141 @@ class EvidenceRetriever:
         trace: list[dict[str, Any]] | None = None,
     ) -> list[ServedEvidence]:
         limit = limit or self.settings.max_evidence
+        served = self._lexical(prompt, project_key, limit, exclude_uris, trace)
+        if self.semantic is None or len(served) >= limit:
+            return served
+        return served + self._by_meaning(
+            prompt, project_key, limit - len(served), exclude_uris, served, trace
+        )
+
+    def explore(self, query: str, *, project_key: str | None = None, limit: int = 8) -> list[Found]:
+        """An explicit search: passages that use the words, then passages that mean it.
+
+        Unlike `retrieve` this is asked for out loud, so a close neighbour is welcome
+        as long as it says how it was found. Nothing is hidden behind the strict bar
+        that automatic injection holds itself to.
+        """
+        terms = question_terms(query)
+        weights = dict.fromkeys(terms, 1.0)
+        results: list[Found] = []
+        seen: set[Any] = set()
+        per_document: dict[str, int] = {}
+
+        def take(hit: ChunkHit, via: str, similarity: float) -> None:
+            uri = hit.document.uri
+            if hit.chunk.id in seen or per_document.get(uri, 0) >= PER_DOCUMENT:
+                return
+            seen.add(hit.chunk.id)
+            per_document[uri] = per_document.get(uri, 0) + 1
+            scored = Scored(hit, similarity, (), similarity, frozenset())
+            results.append(Found(self._serve(scored, weights, project_key), via, similarity))
+
+        if terms:
+            for hit in self.store.search_chunks(terms, limit=limit, project_key=project_key):
+                take(hit, "words", 0.0)
+        if self.semantic is not None:
+            for near in self.semantic.search(query, k=limit * 3):
+                if near.similarity < EXPLORE_FLOOR or len(results) >= limit * 2:
+                    break
+                found = self.store.get_chunk(near.chunk_id)
+                if found is None:
+                    continue
+                if project_key and found.document.project_key != project_key:
+                    continue
+                take(found, "meaning", near.similarity)
+        return results[: limit * 2]
+
+    def _by_meaning(
+        self,
+        prompt: str,
+        project_key: str | None,
+        room: int,
+        exclude_uris: frozenset[str],
+        served: Sequence[ServedEvidence],
+        trace: list[dict[str, Any]] | None,
+    ) -> list[ServedEvidence]:
+        """Passages that say what the question asks, in other words.
+
+        Only the closest matches, and only above a similarity calibrated so that a
+        question about something never written down matches nothing.
+        """
+        assert self.semantic is not None
+        hits = self.semantic.search(prompt, k=SEMANTIC_CANDIDATES)
+        if not hits:
+            return []
+        best = hits[0].similarity
+        terms = set(question_terms(prompt))
+        # A passage that means the same thing usually also shares a distinctive word. Asking
+        # for one keeps a merely topical neighbour (same field, different subject) out.
+        total = self.store.count_chunks()
+        frequency = self.store.term_document_frequency(sorted(terms))
+        distinctive = {
+            term
+            for term in terms
+            if 0 < frequency.get(term, 0) <= max(total * SEMANTIC_RARE_SHARE, SEMANTIC_RARE_MIN)
+        }
+        taken = {item.chunk_id for item in served}
+        uris: dict[str, int] = {}
+        chosen: list[Scored] = []
+        for hit in hits:
+            if hit.similarity < self.settings.semantic_threshold:
+                self._note(
+                    trace,
+                    "semantic",
+                    similarity=round(hit.similarity, 3),
+                    outcome="below threshold",
+                )
+                break
+            if hit.similarity < best - self.settings.semantic_margin or len(chosen) >= room:
+                break
+            found = self.store.get_chunk(hit.chunk_id)
+            if found is None or hit.chunk_id in taken:
+                continue
+            uri = found.document.uri
+            if uri in exclude_uris or uris.get(uri, 0) >= PER_DOCUMENT:
+                continue
+            vocabulary = _chunk_terms(f"{found.chunk.heading} {found.chunk.text}")
+            shared = (
+                vocabulary
+                | name_terms(found.document.project_key)
+                | name_terms(found.document.title)
+            )
+            if self.settings.semantic_needs_word and not any(
+                contains_term(term, shared) for term in distinctive
+            ):
+                self._note(trace, "semantic", uri=uri, outcome="cut: shares no distinctive word")
+                continue
+            if any(_overlap(vocabulary, other.vocabulary) >= NEAR_DUPLICATE for other in chosen):
+                continue
+            uris[uri] = uris.get(uri, 0) + 1
+            chosen.append(
+                Scored(
+                    hit=found,
+                    coverage=hit.similarity,
+                    matched=(),
+                    score=hit.similarity,
+                    vocabulary=frozenset(vocabulary),
+                )
+            )
+            self._note(
+                trace,
+                "semantic",
+                chunk=str(hit.chunk_id),
+                uri=uri,
+                similarity=round(hit.similarity, 3),
+                outcome="served",
+            )
+        weights = dict.fromkeys(terms, 1.0)
+        return [self._serve(item, weights, project_key) for item in chosen]
+
+    def _lexical(
+        self,
+        prompt: str,
+        project_key: str | None,
+        limit: int,
+        exclude_uris: frozenset[str],
+        trace: list[dict[str, Any]] | None,
+    ) -> list[ServedEvidence]:
         terms = question_terms(prompt)
         total = self.store.count_chunks()
         if not terms or total == 0:

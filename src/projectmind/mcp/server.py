@@ -68,6 +68,15 @@ they did before, or when the injected context is missing or empty and you have a
 specific question about prior work.
 """
 
+SEARCH_SOURCES_DESCRIPTION = """\
+Search the user's own files, notes, notebooks, documents and saved pages. Use it
+when the injected context is missing or off-topic and the question may still be
+answered by something they wrote: it finds passages by their words and, when
+enabled, by their meaning. Each result says how it was found; a result found by
+meaning is a close neighbour, not a verified answer, so read it before relying on
+it, and cite its path.
+"""
+
 FEEDBACK_DESCRIPTION = """\
 Report whether an injected ProjectMind block helped. Pass the id from its
 `projectmind bundle <id>` marker, and useful=true if it improved your work or
@@ -145,6 +154,21 @@ def build_server(settings: Settings | None = None) -> Any:
         if not results:
             return "No matching records."
         return "\n\n".join(record.render() for record in results)
+
+    @server.tool(name="search_sources", description=SEARCH_SOURCES_DESCRIPTION)
+    def search_sources(query: str, project_path: str = "", limit: int = 6) -> str:
+        """Search the indexed files, notes and pages by words and, when on, by meaning."""
+        from projectmind.retrieval.evidence import render_found
+
+        if service.settings.semantic and service.evidence.semantic is None:
+            from projectmind import semantic
+
+            semantic.attach(service)
+        key = service.resolve_project(project_path).key if project_path else None
+        found = service.search_sources(query, project_key=key, limit=max(1, min(limit, 12)))
+        if not found:
+            return "Nothing indexed says that."
+        return "\n\n".join(render_found(item) for item in found)
 
     @server.tool(name="memory_feedback", description=FEEDBACK_DESCRIPTION)
     def memory_feedback(bundle_id: str, useful: bool, note: str = "") -> str:

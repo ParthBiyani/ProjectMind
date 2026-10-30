@@ -173,27 +173,26 @@ def audit_index(
 
 @app.command("search")
 def search(
-    query: str = typer.Argument(..., help="Words to look for."),
+    query: str = typer.Argument(..., help="What to look for, in your own words."),
     project: str | None = typer.Option(None, help="Only this project key."),
     limit: int = typer.Option(5, help="How many results."),
 ) -> None:
-    """Search the raw index. Useful for seeing what ProjectMind actually knows."""
-    terms = query.split()
+    """Search the index by words and, if semantic search is on, by meaning."""
+    from projectmind import semantic
+
     with service() as memory:
-        hits = memory.store.search_chunks(terms, limit=limit, project_key=project)
-    if not hits:
+        if memory.settings.semantic:
+            semantic.attach(memory)
+        found = memory.search_sources(query, project_key=project, limit=limit)
+    if not found:
         note("nothing indexed says that")
         return
-    for hit in hits:
-        where = (
-            f"L{hit.chunk.start_line}-{hit.chunk.end_line}"
-            if hit.chunk.start_line
-            else hit.chunk.locator
-        )
+    for item in found:
+        how = "words" if item.via == "words" else f"meaning {item.similarity:.2f}"
         # soft_wrap: a path folded mid-word cannot be copied or opened.
         console.print(
-            f"[bold]{hit.document.project_key}[/bold] {hit.document.uri} [dim]{where}[/dim]",
+            f"[bold]{item.evidence.project_key}[/bold] {item.evidence.citation} [dim]({how})[/dim]",
             soft_wrap=True,
         )
-        console.print(hit.chunk.text[:400], markup=False)
+        console.print(item.evidence.excerpt[:400], markup=False)
         console.print()

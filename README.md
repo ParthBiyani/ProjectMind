@@ -68,7 +68,9 @@ Abridged output:
 | Claude Code sessions: what you asked and the closing reply | `session.jsonl (turn 19, date)` |
 | Browser history and pages (Edge and Chrome) | the page URL |
 
-Details, and what is never read, in [docs/sources.md](docs/sources.md). The privacy
+Questions worded differently from your notes can optionally be matched by meaning;
+see [docs/semantic.md](docs/semantic.md). Details, and what is never read, in
+[docs/sources.md](docs/sources.md). The privacy
 guarantees, each backed by a test, are in [docs/privacy.md](docs/privacy.md).
 
 ## Measured

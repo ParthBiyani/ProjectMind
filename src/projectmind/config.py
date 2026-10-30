@@ -58,6 +58,23 @@ class Settings(BaseSettings):
         ),
     )
 
+    semantic: bool = Field(
+        default=False,
+        description="Also match questions to passages by meaning (needs the [semantic] extra).",
+    )
+    semantic_threshold: float = Field(
+        default=0.78,
+        description="Least cosine similarity for a passage to be served on meaning alone.",
+    )
+    semantic_needs_word: bool = Field(
+        default=True,
+        description="A meaning match must also share a distinctive word with the question.",
+    )
+    semantic_margin: float = Field(
+        default=0.05,
+        description="A meaning match must be within this of the best match to be served.",
+    )
+
     # --- confidence bars, from PRD section 2 -------------------------------
     profile_activation_confidence: float = 0.85
     episodic_serve_confidence: float = 0.60
