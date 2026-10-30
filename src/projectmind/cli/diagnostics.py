@@ -26,7 +26,8 @@ from projectmind.cli.install_cmd import (
     is_ours,
 )
 from projectmind.config import Settings
-from projectmind.storage import open_store
+from projectmind.models import StatementStatus
+from projectmind.storage import StatementFilter, open_store
 
 #: A hook that costs more than this is felt on every prompt.
 HOOK_BUDGET_SECONDS = 1.0
@@ -54,13 +55,25 @@ def check_home(settings: Settings) -> Finding:
     return Finding("home directory", Status.WARN, f"{settings.home} does not exist; run init")
 
 
+def _profile_hint(active: int, proposed: int) -> str:
+    """What to do about an empty profile slice."""
+    if active:
+        return ""
+    if proposed:
+        return "; none is served until you approve some: projectmind profile review"
+    return '; add one: projectmind profile add "..." (or load starters: projectmind profile seed)'
+
+
 def check_storage(settings: Settings) -> list[Finding]:
     try:
         store = open_store(settings)
         try:
             version = store.migrate()
             records = store.count_records()
-            statements = len(store.list_statements())
+            active = len(store.list_statements())
+            proposed = len(
+                store.list_statements(StatementFilter(statuses=(StatementStatus.PROPOSED,)))
+            )
         finally:
             store.close()
     except Exception as exc:  # doctor reports failures instead of raising them
@@ -69,9 +82,9 @@ def check_storage(settings: Settings) -> list[Finding]:
         Finding("storage", Status.OK, f"{settings.describe_backend()} at schema v{version}"),
         Finding(
             "memory",
-            Status.OK if statements else Status.WARN,
-            f"{statements} profile statements, {records} episodic records"
-            + ("" if statements else "; run: projectmind profile seed"),
+            Status.OK if active else Status.WARN,
+            f"{active} active profile statements, {proposed} awaiting your review, "
+            f"{records} history records" + _profile_hint(active, proposed),
         ),
     ]
 
