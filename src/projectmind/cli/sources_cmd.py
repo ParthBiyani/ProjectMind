@@ -142,6 +142,35 @@ def scan(
     ok(f"{sum(r.indexed for r in reports)} files read; {total} chunks indexed in total")
 
 
+@app.command("audit")
+def audit_index(
+    fix: bool = typer.Option(False, "--fix", help="Remove what the current rules would refuse."),
+) -> None:
+    """Check what is already indexed against today's privacy rules.
+
+    Identity and financial documents, credentials and personal identifiers are
+    refused as files are read. This applies the same rules to what was indexed
+    before a rule existed. Without --fix it only reports.
+    """
+    from projectmind.sources.audit import audit
+
+    with service() as memory:
+        report = audit(memory.store, fix=fix)
+    note(f"checked {report.documents_checked} documents and {report.chunks_checked} passages")
+    for uri in report.sensitive_documents[:20]:
+        fail(f"identity or financial document: {uri}")
+    if report.flagged_chunks:
+        fail(f"{report.flagged_chunks} passage(s) contain a credential or personal identifier")
+    if report.clean:
+        ok("nothing the rules would refuse")
+        return
+    if fix:
+        ok(f"removed {report.removed_documents} documents and {report.removed_chunks} passages")
+        return
+    note("run again with --fix to remove them")
+    raise typer.Exit(code=1)
+
+
 @app.command("search")
 def search(
     query: str = typer.Argument(..., help="Words to look for."),

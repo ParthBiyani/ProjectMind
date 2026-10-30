@@ -10,7 +10,7 @@ database against an HNSW index rather than in Python.
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Iterator, Sequence
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -522,6 +522,36 @@ class PostgresStore(Store):
             (str(chunk_id),),
         )
         return _hit_from_row(rows[0]) if rows else None
+
+    def iter_chunks(self) -> Iterator[ChunkRecord]:
+        with self._conn.cursor(name="pm_audit") as cursor:
+            cursor.execute(
+                "SELECT id, document_id, ordinal, heading, text, start_line, end_line, locator "
+                "FROM chunks"
+            )
+            while rows := cursor.fetchmany(500):
+                for row in rows:
+                    yield ChunkRecord(
+                        id=UUID(str(row["id"])),
+                        document_id=UUID(str(row["document_id"])),
+                        ordinal=int(row["ordinal"]),
+                        text=row["text"],
+                        heading=row["heading"] or "",
+                        start_line=int(row["start_line"]),
+                        end_line=int(row["end_line"]),
+                        locator=row["locator"] or "",
+                    )
+
+    def delete_chunks(self, chunk_ids: Sequence[UUID]) -> int:
+        removed = 0
+        for start in range(0, len(chunk_ids), 500):
+            batch = [str(item) for item in chunk_ids[start : start + 500]]
+            removed += self._execute("DELETE FROM chunks WHERE id = ANY(%s::uuid[])", (batch,))
+        self._execute(
+            "UPDATE documents SET chunk_count = "
+            "(SELECT count(*) FROM chunks WHERE chunks.document_id = documents.id)"
+        )
+        return removed
 
     def document_projects(self) -> list[str]:
         rows = self._query("SELECT DISTINCT project_key FROM documents ORDER BY project_key")
