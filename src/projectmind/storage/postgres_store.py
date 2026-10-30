@@ -524,23 +524,29 @@ class PostgresStore(Store):
         return _hit_from_row(rows[0]) if rows else None
 
     def iter_chunks(self) -> Iterator[ChunkRecord]:
-        with self._conn.cursor(name="pm_audit") as cursor:
-            cursor.execute(
+        # Keyset pagination: the connection is in autocommit, where a server-side
+        # cursor is not allowed, and a page at a time keeps memory flat anyway.
+        last = "00000000-0000-0000-0000-000000000000"
+        while True:
+            rows = self._query(
                 "SELECT id, document_id, ordinal, heading, text, start_line, end_line, locator "
-                "FROM chunks"
+                "FROM chunks WHERE id > %s::uuid ORDER BY id LIMIT 500",
+                (last,),
             )
-            while rows := cursor.fetchmany(500):
-                for row in rows:
-                    yield ChunkRecord(
-                        id=UUID(str(row["id"])),
-                        document_id=UUID(str(row["document_id"])),
-                        ordinal=int(row["ordinal"]),
-                        text=row["text"],
-                        heading=row["heading"] or "",
-                        start_line=int(row["start_line"]),
-                        end_line=int(row["end_line"]),
-                        locator=row["locator"] or "",
-                    )
+            if not rows:
+                return
+            for row in rows:
+                yield ChunkRecord(
+                    id=UUID(str(row["id"])),
+                    document_id=UUID(str(row["document_id"])),
+                    ordinal=int(row["ordinal"]),
+                    text=row["text"],
+                    heading=row["heading"] or "",
+                    start_line=int(row["start_line"]),
+                    end_line=int(row["end_line"]),
+                    locator=row["locator"] or "",
+                )
+            last = str(rows[-1]["id"])
 
     def delete_chunks(self, chunk_ids: Sequence[UUID]) -> int:
         removed = 0
