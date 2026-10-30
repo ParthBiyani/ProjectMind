@@ -31,7 +31,7 @@ from projectmind.gate.rules import GateDecision, decide, describe
 from projectmind.logging import get_logger
 from projectmind.models import ContextBundle, Fingerprint, Project, ServedRecord, utcnow
 from projectmind.profile.repository import ProfileRepository, ProfileSlice
-from projectmind.retrieval.evidence import EvidenceRetriever
+from projectmind.retrieval.evidence import EvidenceRetriever, Found
 from projectmind.storage import Store, open_store
 from projectmind.storage.base import BundleLogEntry, UsageStats
 
@@ -362,6 +362,12 @@ class MemoryService:
             types=types,
             limit=limit,
         )
+
+    def search_sources(
+        self, query: str, *, project_key: str | None = None, limit: int = 8
+    ) -> list[Found]:
+        """Explicit search over the indexed files, notes and pages, by words and by meaning."""
+        return self.evidence.explore(query, project_key=project_key, limit=limit)
 
     def _history_mode(self, project_name: str | None) -> str:
         """How much of this interaction may be kept.

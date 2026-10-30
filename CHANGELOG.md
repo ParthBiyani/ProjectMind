@@ -3,6 +3,23 @@
 Notable changes, newest first. Follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 loosely and [Semantic Versioning](https://semver.org/spec/v2.0.0.html) strictly.
 
+## [Unreleased]
+
+### Added
+
+- **Semantic search (optional, off by default).** Questions can be matched to
+  passages by meaning as well as by words (`pip install 'projectmind[semantic]'`,
+  `projectmind semantic enable`, `projectmind semantic index`). Vectors are stored
+  per model (migration 005, SQLite and Postgres), embedded in the background after
+  each sync, and held in memory by the daemon. See [docs/semantic.md](docs/semantic.md).
+- **`search_sources`** MCP tool and a `sources search` that find passages by words and
+  by meaning, each result labelled with how it was found.
+- `eval real --semantic`, and a `semantic` check in `doctor`.
+
+Measured on the author's material: automatic injection rises from 0.812 to 0.844 hit
+rate with silence held at 1.000; the explicit search finds 30 of 32 answerable
+questions against 28 of 32 by words alone.
+
 ## [0.2.0] — 2026-10-30
 
 Real-world hardening, and a knowledge base that answers from what its owner has

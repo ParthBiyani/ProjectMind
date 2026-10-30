@@ -63,8 +63,12 @@ class Settings(BaseSettings):
         description="Also match questions to passages by meaning (needs the [semantic] extra).",
     )
     semantic_threshold: float = Field(
-        default=0.70,
+        default=0.78,
         description="Least cosine similarity for a passage to be served on meaning alone.",
+    )
+    semantic_needs_word: bool = Field(
+        default=True,
+        description="A meaning match must also share a distinctive word with the question.",
     )
     semantic_margin: float = Field(
         default=0.05,

@@ -205,8 +205,12 @@ How to read these honestly:
   four misses are a true synonym gap ("heart cycle" for "Cardiac Cycle"), an
   abbreviation ("PF" for profit factor), a project referred to by description
   rather than name, and a topic described in different words than its notes use.
-  Lexical retrieval cannot close that; an optional embedding reranker is the
-  likely next step and needs its own calibration.
+  Lexical retrieval cannot close that. Optional semantic search (see
+  [semantic.md](semantic.md)) closes part of it: it lifts the hit rate from 0.812 to
+  0.844 with silence held at 1.000, because the safe threshold admits only one of the
+  four. The explicit search, which may show labelled neighbours, finds 30 of 32
+  answerable questions against 28 by words alone; the two it misses are the
+  label-strictness cases above.
 - **What moved these numbers.** Two changes lifted the reworded set from 5 of 12
   to 8 of 12: a question that names a project now needs only 35% coverage
   instead of 60% (naming a project is strong evidence), and short "explain the

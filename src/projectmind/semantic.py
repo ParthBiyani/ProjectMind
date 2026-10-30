@@ -190,3 +190,14 @@ class SemanticIndex:
         top = np.argpartition(-similarities, count - 1)[:count]
         top = top[np.argsort(-similarities[top])]
         return [SemanticHit(self._ids[int(i)], float(similarities[int(i)])) for i in top]
+
+
+def attach(memory: Any) -> SemanticIndex | None:
+    """Give a service meaning search, loading the stored vectors. None if unavailable."""
+    if not available():
+        return None
+    index = SemanticIndex(memory.store)
+    if not index.load():
+        return None
+    memory.evidence.semantic = index
+    return index

@@ -138,18 +138,31 @@ class TestSearch:
 
 class TestServing:
     def retriever(self, store: Store, index: SemanticIndex | None) -> EvidenceRetriever:
-        return EvidenceRetriever(store, Settings(db_url=None), semantic=index)
+        settings = Settings(db_url=None, semantic_threshold=0.7)
+        return EvidenceRetriever(store, settings, semantic=index)
 
     def test_without_the_index_a_reworded_question_is_silent(self, store: Store) -> None:
-        assert self.retriever(store, None).retrieve("the heart beat") == []
+        assert self.retriever(store, None).retrieve("the heart cycle") == []
 
     def test_with_the_index_a_reworded_question_is_answered_and_cited(
         self, store: Store, index: SemanticIndex
     ) -> None:
-        served = self.retriever(store, index).retrieve("the heart beat")
+        served = self.retriever(store, index).retrieve("the heart cycle")
         assert served
         assert "Cardiac cycle timing" in served[0].excerpt
         assert "cardiology" in served[0].citation
+
+    def test_a_match_sharing_no_distinctive_word_is_not_served(
+        self, store: Store, index: SemanticIndex
+    ) -> None:
+        """Close in meaning but with nothing in common: a neighbour, not an answer."""
+        assert self.retriever(store, index).retrieve("the heart beat") == []
+
+    def test_the_word_requirement_can_be_switched_off(
+        self, store: Store, index: SemanticIndex
+    ) -> None:
+        loose = Settings(db_url=None, semantic_threshold=0.7, semantic_needs_word=False)
+        assert EvidenceRetriever(store, loose, semantic=index).retrieve("the heart beat")
 
     def test_a_question_about_nothing_written_stays_silent(
         self, store: Store, index: SemanticIndex
@@ -172,5 +185,45 @@ class TestServing:
 
     def test_the_trace_records_what_was_chosen(self, store: Store, index: SemanticIndex) -> None:
         trace: list[dict[str, Any]] = []
-        self.retriever(store, index).retrieve("the heart beat", trace=trace)
+        self.retriever(store, index).retrieve("the heart cycle", trace=trace)
         assert any(step["stage"] == "semantic" and step["outcome"] == "served" for step in trace)
+
+
+class TestExplicitSearch:
+    """Asked out loud, a close neighbour is welcome, and says how it was found."""
+
+    def test_a_meaning_match_is_returned_and_labelled(
+        self, store: Store, index: SemanticIndex
+    ) -> None:
+        found = EvidenceRetriever(store, Settings(db_url=None), semantic=index).explore(
+            "the heart beat"
+        )
+        assert found
+        assert found[0].via == "meaning"
+        assert "cardiology" in found[0].evidence.citation
+        assert found[0].similarity > 0.6
+
+    def test_a_word_match_is_labelled_as_words(self, store: Store, index: SemanticIndex) -> None:
+        found = EvidenceRetriever(store, Settings(db_url=None), semantic=index).explore(
+            "kubernetes"
+        )
+        assert found[0].via == "words"
+        assert "ops" in found[0].evidence.citation
+
+    def test_without_the_index_only_words_are_used(self, store: Store) -> None:
+        retriever = EvidenceRetriever(store, Settings(db_url=None))
+        assert retriever.explore("the heart beat") == []
+        assert retriever.explore("kubernetes")
+
+    def test_a_result_is_never_listed_twice(self, store: Store, index: SemanticIndex) -> None:
+        found = EvidenceRetriever(store, Settings(db_url=None), semantic=index).explore(
+            "cardiac cycle"
+        )
+        ids = [item.evidence.chunk_id for item in found]
+        assert len(ids) == len(set(ids))
+
+    def test_a_project_filter_is_respected(self, store: Store, index: SemanticIndex) -> None:
+        found = EvidenceRetriever(store, Settings(db_url=None), semantic=index).explore(
+            "heart cycle", project_key="ops"
+        )
+        assert all(item.evidence.project_key == "ops" for item in found)
