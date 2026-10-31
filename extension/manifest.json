@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "ProjectMind Capture",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Sends pages you read on a short list of documentation sites to ProjectMind on this computer. Nothing leaves the machine.",
   "minimum_chrome_version": "116",
   "permissions": [
