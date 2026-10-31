@@ -62,8 +62,8 @@ PER_RETRIEVER = 30
 #: Absolute floor on the final ranked score.
 #:
 #: This and RELATIVE_FLOOR were fitted on the 40-query eval set by sweeping
-#: them against the cross-project boost and the fingerprint floor; see
-#: docs/evaluation.md. The set is therefore no longer a clean held-out measure
+#: them against the cross-project boost and the fingerprint floor. The set is
+#: therefore no longer a clean held-out measure
 #: of *these four constants*, which is stated rather than hidden.
 MINIMUM_SCORE = 0.38
 

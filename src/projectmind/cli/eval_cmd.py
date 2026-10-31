@@ -96,7 +96,7 @@ def run_eval(
         ok(f"wrote {destination}")
 
     if not report.passed:
-        note("not every target is met yet; see docs/roadmap.md for which phase closes which gap")
+        note("not every target is met yet; the README lists the known gaps")
 
 
 @app.command("compare")

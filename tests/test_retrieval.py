@@ -331,7 +331,7 @@ class TestPhaseFourTargets:
         Pinned as a ratchet rather than as a pass: it must not get worse, and
         the gap is documented rather than hidden by relaxing the target.
 
-        The README and docs/evaluation.md recorded 0.174 for this set. That
+        The README and the evaluation notes recorded 0.174 for this set. That
         figure does not reproduce: the service never passed its clock to the
         retriever, so every earlier run scored against the wall clock, and
         recency decay was quietly changing the result. With `as_of` pinned the
