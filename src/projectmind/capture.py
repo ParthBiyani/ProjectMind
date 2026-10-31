@@ -4,8 +4,8 @@ The extension is a convenience and not a trust boundary: every rule it applies i
 applied again here. A page is stored only if
 
 * capture is switched on (`projectmind browser enable`),
-* its domain is allowed and not denied, **or** you explicitly pressed
-  "Remember this page" for it (the deny-list still wins),
+* its domain is not on the never-capture list and is not this machine or the local
+  network (pressing "Remember this page" does not override the list),
 * it survives the credential scan (a chunk that looks like a secret is dropped),
 
 and what is stored is the page's readable text, cut to a size limit, with its URL
@@ -23,7 +23,7 @@ from uuid import uuid4
 from projectmind.logging import get_logger
 from projectmind.service import MemoryService
 from projectmind.sources import chunking
-from projectmind.sources.browser import BrowserConfig, clean_url
+from projectmind.sources.browser import BrowserConfig, clean_domain, clean_url, is_local
 from projectmind.sources.secrets import contains_secret
 from projectmind.storage import ChunkRecord, DocumentRecord
 
@@ -42,14 +42,51 @@ def _config(memory: MemoryService) -> BrowserConfig:
 
 
 def handle_config(memory: MemoryService, _: dict[str, Any]) -> dict[str, Any]:
-    """The allow-list the extension should follow, so there is one source of truth."""
+    """The never-capture list the extension follows, so there is one source of truth."""
     config = _config(memory)
     return {
         "enabled": config.enabled,
-        "allow": list(config.allow),
-        "deny": list(config.deny),
+        "deny": sorted(config.deny),
         "max_text_chars": MAX_TEXT_CHARS,
     }
+
+
+def handle_deny(memory: MemoryService, event: dict[str, Any]) -> dict[str, Any]:
+    """Add a site to the never-capture list (`add`) or take one off it (`remove`).
+
+    Adding also deletes what was already captured from that site, so "never" covers
+    the past as well as the future.
+    """
+    config = _config(memory)
+    removed_documents = 0
+    if event.get("add"):
+        domain = clean_domain(str(event["add"]))
+        if domain is None:
+            return {"ok": False, "reason": "not a domain", "deny": sorted(config.deny)}
+        config = config.denying(domain)
+        removed_documents = forget_domain(memory, domain)
+    elif event.get("remove"):
+        domain = clean_domain(str(event["remove"]))
+        if domain is None or domain not in config.deny:
+            return {"ok": False, "reason": "not on the list", "deny": sorted(config.deny)}
+        config = config.allowing(domain)
+    else:
+        return {"ok": False, "reason": "nothing to change", "deny": sorted(config.deny)}
+    config.save(memory.settings.home)
+    log.info("never-capture list changed", extra={"size": len(config.deny)})
+    return {"ok": True, "deny": sorted(config.deny), "forgotten": removed_documents}
+
+
+def forget_domain(memory: MemoryService, domain: str) -> int:
+    """Delete every captured or history page from `domain` and its subdomains."""
+    removed = 0
+    for root in (ROOT_KEY, "browser"):
+        for uri in list(memory.store.document_hashes(root)):
+            host = (urlsplit(uri).hostname or "").removeprefix("www.")
+            if host == domain or host.endswith("." + domain):
+                memory.store.delete_document(uri)
+                removed += 1
+    return removed
 
 
 def handle_page(memory: MemoryService, event: dict[str, Any]) -> dict[str, Any]:
@@ -63,10 +100,10 @@ def handle_page(memory: MemoryService, event: dict[str, Any]) -> dict[str, Any]:
         return {"stored": False, "reason": "not a web page"}
     host = urlsplit(url).hostname or ""
     explicit = bool(event.get("explicit"))
-    if any(host == d or host.endswith("." + d) for d in config.deny):
-        return {"stored": False, "reason": "domain is denied"}
-    if not explicit and not config.permits(host):
-        return {"stored": False, "reason": "domain is not on the allow-list"}
+    if is_local(host):
+        return {"stored": False, "reason": "pages on this machine or network are never read"}
+    if not config.permits(host):
+        return {"stored": False, "reason": "the site is on the never-capture list"}
 
     text = str(event.get("text") or "")[:MAX_TEXT_CHARS].strip()
     if len(text) < MIN_TEXT_CHARS:
@@ -116,7 +153,7 @@ def handle_page(memory: MemoryService, event: dict[str, Any]) -> dict[str, Any]:
 
 
 def handle_tabs(memory: MemoryService, event: dict[str, Any]) -> dict[str, Any]:
-    """Replace the snapshot of what is open right now (allowed domains only)."""
+    """Replace the snapshot of what is open right now (never-capture sites left out)."""
     config = _config(memory)
     if not config.enabled:
         return {"stored": False, "reason": "capture is off (projectmind browser enable)"}
@@ -133,7 +170,7 @@ def handle_tabs(memory: MemoryService, event: dict[str, Any]) -> dict[str, Any]:
 
     if not lines:
         memory.store.delete_document(TABS_URI)
-        return {"stored": False, "reason": "no allowed tabs open"}
+        return {"stored": False, "reason": "no readable tabs open"}
 
     body = "Open in the browser now:\n" + "\n".join(lines)
     if contains_secret(body):
@@ -170,4 +207,9 @@ def handle_tabs(memory: MemoryService, event: dict[str, Any]) -> dict[str, Any]:
     return {"stored": True, "tabs": len(lines)}
 
 
-HANDLERS = {"config": handle_config, "page": handle_page, "tabs": handle_tabs}
+HANDLERS = {
+    "config": handle_config,
+    "deny": handle_deny,
+    "page": handle_page,
+    "tabs": handle_tabs,
+}

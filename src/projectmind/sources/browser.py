@@ -1,16 +1,20 @@
-"""Browser history from Edge and Chrome, under strict privacy rules.
+"""Browser history from Edge and Chrome, minus the sites you never want read.
 
-Browser history is the most sensitive data on a developer's machine and mostly
-has nothing to do with work. So the default is the opposite of "read it all":
+Browser history is the most sensitive data on a developer's machine. The rule is
+"everything you read, except what you have ruled out", with the ruling-out done
+first and done in three places (the extension, the daemon and this reader):
 
-* **Allow-list.** Only pages on domains you have allowed are considered. Banking,
-  mail, social media, health, shopping and everything else never enter the index.
+* **A never-capture list.** Banking, brokers, payments, mail, chat, social media,
+  sign-in pages, password managers, government identity and tax sites, health,
+  personal documents, cloud consoles and AI chats are on it from the start. Add
+  and remove sites in the extension's options or with `projectmind browser deny`.
+* **Never this machine.** localhost, private network addresses and `.local` names
+  are never read, whatever the list says: that is where dashboards (including
+  ProjectMind's own) and development servers live.
 * **Nothing but the page.** URLs are stored without query string or fragment (no
   tokens, no session ids), with the page title and a visit count.
 * **Searches only with a purpose.** A search query is kept only if, within a few
-  minutes, you went on to a page on an allowed domain. "pgvector hnsw tuning"
-  followed by the PostgreSQL docs is knowledge; a search that led nowhere you
-  allowed is not stored at all.
+  minutes, you went on to a page that may be read.
 * **A copy, read-only.** The browser's own database is copied and the copy is
   read. The original is never opened for writing.
 
@@ -20,6 +24,7 @@ when applicable, `Found by searching: ...`.
 
 from __future__ import annotations
 
+import ipaddress
 import os
 import shutil
 import sqlite3
@@ -40,34 +45,88 @@ from projectmind.storage import ChunkRecord, DocumentRecord, Store
 log = get_logger(__name__)
 
 CONFIG_FILE = "browser.yaml"
+CONFIG_VERSION = 2
 ROOT_KEY = "browser"
 CHROMIUM_EPOCH = datetime(1601, 1, 1, tzinfo=UTC)
 
-#: A search counts as "leading somewhere" if an allowed page follows this soon.
+#: A search counts as "leading somewhere" if a readable page follows this soon.
 SEARCH_WINDOW = timedelta(minutes=12)
 MAX_QUERIES_PER_PAGE = 4
 
-#: Documentation, reference and code-hosting sites. Deliberately technical; add
-#: your own in `browser.yaml`.
-DEFAULT_ALLOW = (
-    "docs.python.org", "pypi.org", "pytorch.org", "huggingface.co", "kaggle.com",
-    "arxiv.org", "paperswithcode.com", "github.com", "stackoverflow.com",
-    "*.stackexchange.com", "*.readthedocs.io", "developer.mozilla.org", "docs.pydantic.dev",
-    "fastapi.tiangolo.com", "numpy.org", "pandas.pydata.org", "scikit-learn.org",
-    "docs.sqlalchemy.org", "postgresql.org", "sqlite.org", "supabase.com", "flutter.dev",
-    "dart.dev", "pub.dev", "docs.docker.com", "learn.microsoft.com", "docs.anthropic.com",
-    "platform.openai.com", "langchain.com", "python.langchain.com", "langchain-ai.github.io",
-    "nodejs.org", "typescriptlang.org", "react.dev", "nextjs.org", "tailwindcss.com",
-    "docs.github.com", "git-scm.com", "kubernetes.io", "wandb.ai", "lightgbm.readthedocs.io",
-    "xgboost.readthedocs.io", "docs.ultralytics.com", "opencv.org", "docs.opencv.org",
+#: Never read, from the first run. A domain covers its subdomains. Edit the list
+#: in the extension's options, `projectmind browser deny / allow`, or browser.yaml.
+DEFAULT_DENY = (
+    # brokers, trading and investing
+    "zerodha.com", "kite.com", "fyers.in", "fyers.com", "groww.in", "upstox.com",
+    "angelone.in", "dhan.co", "5paisa.com", "icicidirect.com", "hdfcsec.com",
+    "motilaloswal.com", "sharekhan.com", "smallcase.com", "paytmmoney.com", "indmoney.com",
+    "coinbase.com", "binance.com", "wazirx.com", "coindcx.com",
+    # banks, cards and payments
+    "hdfcbank.com", "icicibank.com", "onlinesbi.sbi", "sbi.co.in", "sbicard.com",
+    "axisbank.com", "kotak.com", "yesbank.in", "pnbindia.in", "bankofbaroda.in",
+    "idfcfirstbank.com", "indusind.com", "federalbank.co.in", "aubank.in",
+    "americanexpress.com", "paytm.com", "phonepe.com", "cred.club", "razorpay.com",
+    "paypal.com", "stripe.com", "wise.com", "policybazaar.com",
+    # government identity and tax
+    "gov.in", "nic.in", "uidai.gov.in", "incometax.gov.in", "digilocker.gov.in",
+    "passportindia.gov.in", "irs.gov",
+    # mail, chat and social
+    "mail.google.com", "outlook.live.com", "outlook.office.com", "outlook.office365.com",
+    "mail.yahoo.com", "proton.me", "whatsapp.com", "web.telegram.org", "discord.com",
+    "slack.com", "messenger.com", "facebook.com", "instagram.com", "x.com", "twitter.com",
+    "linkedin.com", "snapchat.com",
+    # sign-in, accounts and passwords
+    "accounts.google.com", "myaccount.google.com", "login.microsoftonline.com",
+    "login.live.com", "account.live.com", "account.microsoft.com", "appleid.apple.com",
+    "1password.com", "bitwarden.com", "lastpass.com",
+    # personal documents and storage
+    "docs.google.com", "drive.google.com", "photos.google.com", "onedrive.live.com",
+    "dropbox.com", "icloud.com",
+    # cloud consoles (keys and bills)
+    "console.aws.amazon.com", "portal.azure.com", "console.cloud.google.com",
+    "dashboard.render.com", "vercel.com",
+    # AI chats (private conversations)
+    "claude.ai", "chatgpt.com", "chat.openai.com", "gemini.google.com",
+    # health
+    "practo.com", "1mg.com", "pharmeasy.in", "apollo247.com",
+    # shopping and orders
+    "amazon.in", "amazon.com", "flipkart.com", "myntra.com", "swiggy.com", "zomato.com",
+    "blinkit.com", "zeptonow.com", "bigbasket.com",
 )  # fmt: skip
+
+#: Never read, and not on the list because it cannot be taken off it.
+LOCAL_SUFFIXES = (".local", ".localhost", ".internal", ".lan", ".home.arpa")
+
+
+def is_local(host: str) -> bool:
+    """This machine, the local network, or a name that only resolves inside it."""
+    host = host.lower().strip("[]").rstrip(".")
+    if not host or host == "localhost" or ("." not in host and ":" not in host):
+        return True
+    if host.endswith(LOCAL_SUFFIXES):
+        return True
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError:
+        return False
+    return address.is_private or address.is_loopback or address.is_link_local
+
+
+def clean_domain(domain: str) -> str | None:
+    """`https://www.Kite.com/login` -> `kite.com`. None if it is not a domain."""
+    text = domain.strip().lower()
+    if "://" in text:
+        text = urlsplit(text).hostname or ""
+    text = text.split("/", 1)[0].removeprefix("*.").removeprefix("www.").strip(".")
+    if not text or " " in text or "." not in text:
+        return None
+    return text
 
 
 @dataclass(slots=True)
 class BrowserConfig:
     enabled: bool = False
-    allow: tuple[str, ...] = DEFAULT_ALLOW
-    deny: tuple[str, ...] = ()
+    deny: tuple[str, ...] = DEFAULT_DENY
     days: int = 365
 
     @classmethod
@@ -76,12 +135,14 @@ class BrowserConfig:
         if not path.exists():
             return cls()
         raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-        allow = tuple(str(item).lower() for item in raw.get("allow", DEFAULT_ALLOW))
-        extra = tuple(str(item).lower() for item in raw.get("extra_allow", ()))
+        listed = tuple(str(item).lower() for item in raw.get("deny") or ())
+        if int(raw.get("version", 1)) < CONFIG_VERSION:
+            # Version 1 read only an allow-list; its deny list was extra. Moving to
+            # "everything except", the defaults join whatever was denied before.
+            listed = tuple(dict.fromkeys((*DEFAULT_DENY, *listed)))
         return cls(
             enabled=bool(raw.get("enabled", True)),
-            allow=allow + extra,
-            deny=tuple(str(item).lower() for item in raw.get("deny", ())),
+            deny=listed,
             days=int(raw.get("days", 365)),
         )
 
@@ -89,9 +150,9 @@ class BrowserConfig:
         home.mkdir(parents=True, exist_ok=True)
         path = home / CONFIG_FILE
         payload = {
+            "version": CONFIG_VERSION,
             "enabled": self.enabled,
             "days": self.days,
-            "allow": list(self.allow),
             "deny": list(self.deny),
         }
         path.write_text(yaml.safe_dump(payload, sort_keys=False), encoding="utf-8")
@@ -99,9 +160,19 @@ class BrowserConfig:
 
     def permits(self, host: str) -> bool:
         host = host.lower().removeprefix("www.")
-        if any(_host_matches(host, pattern) for pattern in self.deny):
+        if is_local(host):
             return False
-        return any(_host_matches(host, pattern) for pattern in self.allow)
+        return not any(_host_matches(host, pattern) for pattern in self.deny)
+
+    def denying(self, domain: str) -> BrowserConfig:
+        """This config with `domain` on the never-capture list."""
+        if domain in self.deny:
+            return self
+        return BrowserConfig(self.enabled, (*self.deny, domain), self.days)
+
+    def allowing(self, domain: str) -> BrowserConfig:
+        """This config with `domain` taken off the never-capture list."""
+        return BrowserConfig(self.enabled, tuple(d for d in self.deny if d != domain), self.days)
 
 
 def _host_matches(host: str, pattern: str) -> bool:

@@ -1,8 +1,10 @@
 /*
- * Runs only on the allow-listed domains (the manifest decides that, not this
- * file). After a page has been in front of you for a while it sends its readable
- * text to the background worker. Reading a page for a few seconds on the way to
- * somewhere else sends nothing.
+ * Runs on every web page except this machine (the manifest excludes localhost).
+ * Before reading anything it checks the never-capture list, which the background
+ * worker keeps in sync with the daemon; until that list has arrived it reads
+ * nothing. After a page has been in front of you for a while it sends its readable
+ * text. Reading a page for a few seconds on the way somewhere else sends nothing,
+ * and a page that asks for a password or a card number is never read.
  */
 (function () {
   'use strict';
@@ -20,12 +22,18 @@
     return document.visibilityState === 'visible' && document.hasFocus();
   }
 
-  function send() {
+  async function allowedHere() {
+    const { deny, paused } = await chrome.storage.local.get(['deny', 'paused']);
+    return !paused && PM.permits(location.hostname, deny);
+  }
+
+  async function send() {
     const key = pageKey();
     if (sentFor === key) return;
+    sentFor = key;
+    if (!(await allowedHere()) || PM.looksSensitive(document)) return;
     const page = globalThis.__pmExtract();
     if (!page.text || page.text.length < 80) return;
-    sentFor = key;
     chrome.runtime.sendMessage({
       kind: 'page',
       url: page.url,

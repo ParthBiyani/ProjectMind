@@ -1,18 +1,23 @@
 # ProjectMind Capture (browser extension)
 
-Sends the readable text of pages you read on a short list of documentation and
-research sites to ProjectMind running **on your own computer**, so that later
+Sends the readable text of the pages you read, except sites on your never-capture
+list, to ProjectMind running **on your own computer**, so that later
 "what did I read about X?" has an answer with a source. It works in Microsoft Edge
 and Google Chrome (the same extension, Manifest V3).
 
 ## What it can and cannot see
 
-- It can read **only** the sites on the allow-list (documentation, GitHub, Kaggle,
-  arXiv and similar). That limit is in the extension manifest itself, so the
-  browser enforces it; it is not a promise made in code. The list is
-  `DEFAULT_ALLOW` in [`src/projectmind/sources/browser.py`](../src/projectmind/sources/browser.py).
-- It cannot read mail, banking, social media, shopping or any other site, unless
-  you press **Remember this page** on that page yourself.
+- It reads **every site except the never-capture list**. The list starts with
+  banking, brokers (Kite/Zerodha, Fyers and others), payments, mail, chat, social media,
+  sign-in pages, password managers, government identity sites, health, personal
+  documents, cloud consoles and AI chats (`DEFAULT_DENY` in
+  [`src/projectmind/sources/browser.py`](../src/projectmind/sources/browser.py)).
+  Edit it in the extension's **Options** page, or press **Never capture this site** in
+  the toolbar popup. Adding a site also forgets what was already read from it.
+- It never reads this computer or your local network (localhost, private addresses,
+  `.local` names), never runs in private windows, and skips any page that asks for a
+  password or a card number.
+- Until it has received the list from the daemon, it reads nothing.
 - It sends data to `127.0.0.1` (this computer) and nowhere else. There is no
   analytics and no remote code.
 - A page is captured only after you have had it in front of you for 20 seconds, so

@@ -25,10 +25,48 @@
     return h === p || h.endsWith('.' + p);
   }
 
-  function permits(host, allow, deny) {
+  const LOCAL_SUFFIXES = ['.local', '.localhost', '.internal', '.lan', '.home.arpa'];
+
+  // This machine or the local network: never read, whatever the list says.
+  function isLocal(host) {
+    const h = String(host || '').toLowerCase().replace(/^\[|\]$/g, '').replace(/\.$/, '');
+    if (!h || h === 'localhost') return true;
+    if (h.indexOf('.') === -1 && h.indexOf(':') === -1) return true;
+    if (LOCAL_SUFFIXES.some((s) => h.endsWith(s))) return true;
+    const v4 = h.match(/^(\d+)\.(\d+)\.(\d+)\.(\d+)$/);
+    if (v4) {
+      const [a, b] = [Number(v4[1]), Number(v4[2])];
+      return a === 10 || a === 127 || (a === 172 && b >= 16 && b <= 31) ||
+        (a === 192 && b === 168) || (a === 169 && b === 254) || a === 0;
+    }
+    if (h.indexOf(':') !== -1) return h === '::1' || /^f[cd]/.test(h) || /^fe80/.test(h);
+    return false;
+  }
+
+  // Everything except the never-capture list. `deny` undefined means the list has
+  // not arrived from the daemon yet, and then nothing is read (fail closed).
+  function permits(host, deny) {
+    if (!Array.isArray(deny)) return false;
     const h = String(host).toLowerCase().replace(/^www\./, '');
-    if ((deny || []).some((d) => hostMatches(h, d))) return false;
-    return (allow || []).some((a) => hostMatches(h, a));
+    if (isLocal(h)) return false;
+    return !deny.some((d) => hostMatches(h, d));
+  }
+
+  // A typed address such as www.Kite.com/login -> kite.com; null if it is not a domain.
+  function cleanDomain(raw) {
+    let text = String(raw || '').trim().toLowerCase();
+    if (text.indexOf('://') !== -1) {
+      try { text = new URL(text).hostname; } catch (_) { return null; }
+    }
+    text = text.split('/')[0].replace(/^\*\./, '').replace(/^www\./, '').replace(/^\.+|\.+$/g, '');
+    if (!text || /\s/.test(text) || text.indexOf('.') === -1) return null;
+    return text;
+  }
+
+  // A page asking for a password or a card number is not read, whatever the site.
+  function looksSensitive(doc) {
+    return Boolean(doc.querySelector(
+      'input[type="password"], input[autocomplete^="cc-"], input[name*="card" i][name*="number" i]'));
   }
 
   // Page identity: no query string, no fragment (no tokens, no session ids).
@@ -79,12 +117,6 @@
     return best;
   }
 
-  // A pattern the manifest can use to request access to an allowed domain.
-  function matchPattern(domain) {
-    const bare = String(domain).replace(/^\*\./, '').replace(/^www\./, '');
-    return 'https://*.' + bare + '/*';
-  }
-
   const api = {
     DEFAULT_PORT,
     DWELL_SECONDS,
@@ -92,13 +124,15 @@
     QUEUE_CAP,
     BATCH,
     hostMatches,
+    isLocal,
     permits,
+    cleanDomain,
+    looksSensitive,
     cleanUrl,
     clip,
     enqueue,
     takeBatch,
     bestBlock,
-    matchPattern,
   };
 
   if (typeof module !== 'undefined' && module.exports) {

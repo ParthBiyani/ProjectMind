@@ -1,7 +1,8 @@
 """The extension is JavaScript, but its safety properties are checked from here.
 
-The manifest is what actually limits which sites the extension can read, so it is
-tested as a security boundary, not as configuration.
+The extension may read any web page, so what keeps it out of the wrong ones is
+tested here: it never runs on this machine, never in private windows, talks only to
+the daemon, and every rule it applies the daemon applies again.
 """
 
 from __future__ import annotations
@@ -14,7 +15,7 @@ from pathlib import Path
 
 import pytest
 
-from projectmind.sources.browser import DEFAULT_ALLOW, BrowserConfig
+from projectmind.sources.browser import BrowserConfig
 
 EXTENSION = Path(__file__).resolve().parents[1] / "extension"
 
@@ -31,29 +32,22 @@ class TestManifest:
     def test_it_is_manifest_v3(self) -> None:
         assert manifest()["manifest_version"] == 3
 
-    def test_it_cannot_read_every_site(self) -> None:
-        text = json.dumps(manifest())
-        assert "<all_urls>" not in text
-        assert '"*://*/*"' not in text
-        assert '"https://*/*"' not in text
-        assert '"http://*/*"' not in text
-
-    def test_the_sites_it_can_read_are_exactly_the_default_allow_list(self) -> None:
-        expected = sorted({pattern(domain) for domain in DEFAULT_ALLOW})
-        hosts = manifest()["host_permissions"]
-        assert isinstance(hosts, list)
-        assert sorted(h for h in hosts if h.startswith("https://")) == expected
-
-    def test_content_scripts_run_only_on_those_sites(self) -> None:
+    def test_it_reads_web_pages_but_never_this_machine(self) -> None:
         [script] = manifest()["content_scripts"]  # type: ignore[misc]
-        expected = sorted({pattern(domain) for domain in DEFAULT_ALLOW})
-        assert sorted(script["matches"]) == expected
+        assert sorted(script["matches"]) == ["http://*/*", "https://*/*"]
+        excluded = script["exclude_matches"]
+        for pattern in ("*://localhost/*", "*://127.0.0.1/*", "*://*.local/*"):
+            assert pattern in excluded
         assert script["all_frames"] is False
 
+    def test_it_never_runs_in_private_windows(self) -> None:
+        assert manifest()["incognito"] == "not_allowed"
+
     def test_it_talks_only_to_this_computer(self) -> None:
-        hosts = manifest()["host_permissions"]
-        assert "http://127.0.0.1/*" in hosts  # type: ignore[operator]
-        assert not any(h.startswith("http://") and "127.0.0.1" not in h for h in hosts)  # type: ignore[union-attr]
+        source = (EXTENSION / "background.js").read_text(encoding="utf-8")
+        assert re.findall(r"fetch\(`([^`]+)`", source) == [
+            "http://127.0.0.1:${port}/capture/${kind}"
+        ]
 
     def test_it_asks_for_no_more_than_it_uses(self) -> None:
         assert set(manifest()["permissions"]) == {  # type: ignore[call-overload]
@@ -95,10 +89,24 @@ class TestSources:
             assert "new Function" not in text
             assert "XMLHttpRequest" not in text
 
-    def test_the_default_allow_list_has_no_personal_or_commerce_sites(self) -> None:
+    def test_the_default_list_keeps_personal_and_money_sites_out(self) -> None:
         config = BrowserConfig(enabled=True)
-        for host in ("mail.google.com", "www.facebook.com", "www.amazon.in", "web.whatsapp.com"):
+        for host in (
+            "mail.google.com",
+            "www.facebook.com",
+            "www.amazon.in",
+            "web.whatsapp.com",
+            "kite.zerodha.com",
+            "fyers.in",
+            "netbanking.hdfcbank.com",
+        ):
             assert not config.permits(host)
+
+    def test_the_content_script_checks_the_list_before_reading(self) -> None:
+        source = (EXTENSION / "content.js").read_text(encoding="utf-8")
+        check = source.index("allowedHere()")
+        assert check < source.index("__pmExtract()")
+        assert "looksSensitive" in source
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node is not installed")

@@ -4,28 +4,51 @@
 <meta charset="utf-8">
 <title>ProjectMind options</title>
 <style>
-  :root { color-scheme: light dark; --fg: #1f2328; --bg: #ffffff; --muted: #656d76; --line: #d0d7de; --ok: #1a7f37; --bad: #cf222e; }
-  @media (prefers-color-scheme: dark) { :root { --fg: #e6edf3; --bg: #0d1117; --muted: #8b949e; --line: #30363d; --ok: #3fb950; --bad: #f85149; } }
-  body { max-width: 560px; margin: 32px auto; padding: 0 16px; font: 14px/1.5 system-ui, sans-serif; color: var(--fg); background: var(--bg); }
-  h1 { font-size: 18px; } label { display: block; margin-top: 14px; font-weight: 600; }
+  :root { color-scheme: light dark; --fg: #1f2328; --bg: #ffffff; --muted: #656d76; --line: #d0d7de; --chip: #f6f8fa; --ok: #1a7f37; --bad: #cf222e; }
+  @media (prefers-color-scheme: dark) { :root { --fg: #e6edf3; --bg: #0d1117; --muted: #8b949e; --line: #30363d; --chip: #161b22; --ok: #3fb950; --bad: #f85149; } }
+  body { max-width: 640px; margin: 32px auto; padding: 0 16px 48px; font: 14px/1.5 system-ui, sans-serif; color: var(--fg); background: var(--bg); }
+  h1 { font-size: 18px; } h2 { font-size: 15px; margin-top: 28px; }
+  label { display: block; margin-top: 14px; font-weight: 600; }
   input { width: 100%; box-sizing: border-box; padding: 7px 9px; margin-top: 4px; font: inherit; color: inherit; background: transparent; border: 1px solid var(--line); border-radius: 6px; }
   button { margin: 14px 8px 0 0; padding: 7px 14px; font: inherit; color: inherit; background: transparent; border: 1px solid var(--line); border-radius: 6px; cursor: pointer; }
-  p, #result { color: var(--muted); } #result.ok { color: var(--ok); } #result.bad { color: var(--bad); }
+  button:hover { border-color: var(--muted); }
+  p, #result, #deny-result { color: var(--muted); } .ok { color: var(--ok) !important; } .bad { color: var(--bad) !important; }
   code { font-family: ui-monospace, monospace; }
+  .add { display: flex; gap: 8px; align-items: flex-end; } .add input { flex: 1; } .add button { margin-top: 0; }
+  #filter { margin-top: 12px; }
+  ul { list-style: none; padding: 0; margin: 12px 0 0; display: flex; flex-wrap: wrap; gap: 6px; }
+  li { display: inline-flex; align-items: center; gap: 4px; padding: 3px 4px 3px 10px; border: 1px solid var(--line); border-radius: 999px; background: var(--chip); font: 12.5px ui-monospace, monospace; }
+  li button { margin: 0; padding: 0 7px; border: 0; border-radius: 999px; font-size: 14px; line-height: 1.4; }
+  li button:hover { color: var(--bad); }
 </style>
 </head>
 <body>
   <h1>ProjectMind capture</h1>
-  <p>This extension sends pages you read on a short list of documentation sites to the ProjectMind
-     program on <em>this computer</em>, and nowhere else. Run <code>projectmind daemon token</code>
-     in a terminal and paste the result below.</p>
+  <p>Pages you read are sent to the ProjectMind program on <em>this computer</em>, and nowhere
+     else, except the sites on the never-capture list below. Pages on this computer or your
+     local network, and pages that ask for a password or a card number, are never read.</p>
+
+  <h2>Connection</h2>
+  <p>Paste the result of <code>projectmind daemon token</code>. You only need to do this once;
+     it is kept when the browser or the computer restarts.</p>
   <label for="token">Token</label>
   <input id="token" type="password" autocomplete="off" spellcheck="false">
   <label for="port">Port</label>
   <input id="port" type="number" min="1" max="65535">
   <button id="save">Save</button><button id="test">Test connection</button>
   <p id="result"></p>
-  <p id="rules"></p>
+
+  <h2>Never capture</h2>
+  <p>Nothing from these sites, or their subdomains, is ever read. Adding a site also forgets
+     what was already read from it. The same list applies to browser history.</p>
+  <div class="add">
+    <label style="flex:1">Site<input id="deny-input" placeholder="e.g. kite.com or https://fyers.in/login" spellcheck="false"></label>
+    <button id="deny-add">Add</button>
+  </div>
+  <input id="filter" placeholder="Filter the list" spellcheck="false">
+  <ul id="deny-list"></ul>
+  <p id="deny-result"></p>
+
   <script src="lib.js"></script>
   <script src="options.js"></script>
 </body>

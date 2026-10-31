@@ -33,6 +33,18 @@ pauseButton.addEventListener('click', async () => {
   render();
 });
 
+document.getElementById('never').addEventListener('click', async () => {
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  const domain = tab && tab.url ? globalThis.PM.cleanDomain(tab.url) : null;
+  if (!domain) {
+    message.textContent = 'This page has no site to block.';
+    return;
+  }
+  const reply = await chrome.runtime.sendMessage({ kind: 'deny', add: domain });
+  const done = reply && reply.ok && reply.result && reply.result.ok;
+  message.textContent = done ? `${domain} will never be read.` : 'Could not reach ProjectMind.';
+});
+
 document.getElementById('options').addEventListener('click', (event) => {
   event.preventDefault();
   chrome.runtime.openOptionsPage();
