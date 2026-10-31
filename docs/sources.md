@@ -90,5 +90,10 @@ unrelated text. The cost of that rule is real: if you ask in words your notes
 never use ("rate limits" for notes that say "429"), the answer is silence. See
 [evaluation.md](evaluation.md) for how often that happens.
 
+Optional [semantic search](semantic.md) adds passages that mean what the question asks
+in other words, under a strict bar for automatic injection and labelled as "by meaning"
+in explicit search (`projectmind sources search`, the web UI's Search view, the
+`search_sources` MCP tool).
+
 Every decision, including the candidates that were cut and why, is recorded in the
-interaction history: `projectmind history show <id>`.
+interaction history: `projectmind history show <id>`, or the web UI's History view.

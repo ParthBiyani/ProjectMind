@@ -8,10 +8,17 @@ with them. Each statement is enforced in code and covered by a test.
 
 - The database is a file in `~/.projectmind` (or a Postgres you point it at).
 - **There is no network call on the retrieval path**, and none in ingestion unless
-  you set `ANTHROPIC_API_KEY` (optional notes) or `GITHUB_TOKEN` (pull requests).
+  you set `GITHUB_TOKEN` (pull requests). Semantic search runs a local model; its one
+  network call is downloading that model once, when you install it.
 - The daemon listens on `127.0.0.1` only. Every request needs a bearer token held
   in a file only your account can read; a foreign `Host` header is refused (this
   stops a web page reaching it under its own name); no CORS headers are ever sent.
+
+- The **web UI** is served by the same daemon on loopback. Its static files carry no
+  data; every API call needs the token, which reaches the page in the URL fragment
+  (never sent to a server) and is then removed from the address bar. The page makes
+  no external requests and cannot be framed. `projectmind ui --demo` shows a fictional
+  workspace, so a demo exposes nothing of yours.
 
 ## What is stored
 
@@ -20,6 +27,7 @@ with them. Each statement is enforced in code and covered by a test.
 | Passages from your files | yes | verbatim, with citation; credentials dropped |
 | Every question and answer | yes (`PROJECTMIND_HISTORY=full`) | for audit and replay. `minimal` keeps hashed metadata; `off` keeps nothing |
 | Browser history | **off** | allow-listed domains only, no query string or fragment |
+| Passage embeddings (semantic search) | **off** | numbers derived from the passages, stored beside them; removed with their document |
 | Browser page text | **off** | needs the extension and `browser enable`; allow-listed domains, or a page you explicitly remember |
 
 Projects matching `PROJECTMIND_EXCLUDED_REPOS` are never read, and their

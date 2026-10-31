@@ -1,103 +1,60 @@
 # ProjectMind
 
-**A memory for your coding agent that answers from your own work: your notes, your
-commits, your competition logs, your past sessions and what you read, quoted
-verbatim with the exact place it came from, and silent when it has nothing.**
+**A local memory for your coding agent. It answers from your own work — notes, commits,
+competition logs, notebooks, documents, past agent sessions and the docs you read — with
+verbatim excerpts and exact citations, and stays silent when it has nothing.**
 
 [![CI](https://github.com/ParthBiyani/ProjectMind/actions/workflows/ci.yml/badge.svg)](https://github.com/ParthBiyani/ProjectMind/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/ParthBiyani/ProjectMind)](https://github.com/ParthBiyani/ProjectMind/releases)
 ![Python](https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.13-blue)
-![License](https://img.shields.io/badge/license-MIT-green)
+![Types](https://img.shields.io/badge/mypy-strict-blue)
+[![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
----
+![The Ask view: a question, the cited excerpts, and why each candidate was kept or cut](docs/assets/ui-ask.png)
 
-## The problem
+## Why
 
-A coding agent starts every task with amnesia. It does not know you solved this in
-another repository eight months ago, that the competition notes say exact voxel
-matching makes boundary F1 brutal, or that you dropped a column from a report last
-week and why. Per-repository context cannot close that gap, because it is scoped to
-the repository it lives in. The gap is **cross-project** and **personal**.
+- **Agents forget across projects.** Per-repository context can't see the bug you fixed
+  elsewhere, the note that explains a metric, or the commit that dropped a column.
+- **Guessing is worse than forgetting.** An unrelated passage in the context silently
+  makes the agent worse. ProjectMind serves a passage only when it covers the question.
+- **Verbatim and cited.** Every item is copied from a source with its place
+  (`notes.md:12-19`, a commit URL, `paper.pdf (page 3)`, `session.jsonl (turn 19)`).
+- **Private by construction.** Everything stays on your machine. No API key needed.
 
-A memory that fills the gap by guessing makes things worse. So the design rules are
-about restraint:
+## Results
 
-1. **Verbatim and cited.** What is served is copied from a source, with the file and
-   line numbers (or commit, page, cell, turn, URL). Nothing is summarised.
-2. **Relevant or silent.** A passage is served only if it covers the question's
-   distinctive terms, including one of its two most specific. Ask about something you have
-   never written about and the answer is nothing, not the nearest unrelated text.
-3. **Private by construction.** Everything stays on your machine. Credentials,
-   identity documents and personal identifiers never enter the index. Browser
-   reading is opt-in and allow-listed.
+Measured on a real knowledge base (~9,000 documents, 27,403 passages) with 42 questions,
+including 12 deliberately reworded and 10 about topics that appear nowhere:
 
-## See it
+| | Lexical | + semantic search |
+|---|---|---|
+| Right source cited (answerable questions) | **0.812** | **0.844** |
+| Silent on absent topics | **1.000** | **1.000** |
+| Explicit search finds the right source | 28 / 32 | **30 / 32** |
+| Hook latency (through the daemon) | ~150 ms | ~150 ms |
 
-```bash
-projectmind demo        # a guided tour on a fictional workspace; touches nothing of yours
-```
+Synthetic, reproducible 40-query set (pinned clock): gate precision **1.000**, precision@5
+**0.750**, cross-project hit rate **0.325**, false injection **0.174** against a 0.10 target
+(missed, and documented). Caveats and method: [docs/evaluation.md](docs/evaluation.md).
 
-Abridged output:
+## Features
 
-```
- 3/7  Your own git history
- you ask   Why did we drop the profit factor column?
- -> git://ledger-desk/commit/c4a9274 (2026-10-30)
-    | [failure] drop the profit factor column from the variations table
-    | outcome: fixed in this commit
-
- 4/7  Knowledge from another project
- you ask   How should the client back off when the provider rate limits us?   (in pulse-api)
- -> echo-notes/DECISIONS.md:1-7
-    | When the provider rate limits us (HTTP 429), the client backs off exponentially with
-    | jitter, capped at 30 seconds, and gives up after five attempts. ...
-
- 7/7  Nothing to say
- you ask   Tune the Kubernetes ingress certificate rotation
- -> nothing served   (no passage covers the question)
-```
-
-## What it reads
-
-| Source | Cited as |
-|---|---|
-| Git history, incrementally | commit URL and date |
-| Notes, plans, READMEs, `CLAUDE.md` logs | `path:first-last` (exact lines) |
-| Scripts (header comments, docstrings), training logs (result lines), small result files | `path:first-last` |
-| Notebooks (markdown, code headers, text outputs) | `notebook.ipynb (cell 7)` |
-| PDF, Word, PowerPoint | `file.pdf (page 3)`, `(slide 2)` |
-| Claude Code sessions: what you asked and the closing reply | `session.jsonl (turn 19, date)` |
-| Browser history and pages (Edge and Chrome) | the page URL |
-
-Questions worded differently from your notes can optionally be matched by meaning;
-see [docs/semantic.md](docs/semantic.md). Details, and what is never read, in
-[docs/sources.md](docs/sources.md). The privacy
-guarantees, each backed by a test, are in [docs/privacy.md](docs/privacy.md).
-
-## Measured
-
-On **my own material** (about 9,000 documents and 27,000 passages: git history,
-competition logs, notebooks, PDFs, sessions, browsing), 42 questions I wrote about
-real projects: 20 in the project's own words, 12 deliberately reworded to avoid them,
-and 10 about topics that appear nowhere in the material:
-
-| | |
-|---|---|
-| Correct source cited, own words | **0.90** (18 of 20) |
-| Correct source cited, reworded | **0.67** (8 of 12) |
-| Silent on absent topics | **1.00** (10 of 10); false injection **0.00** |
-| Served precision | 0.71 |
-| Tokens per answer / p95 latency | 535 / 80 ms in process |
-
-Read the caveats in [docs/evaluation.md](docs/evaluation.md#v020-measured-on-real-material):
-I labelled these after seeing the index, the set is small, and the reworded half is the
-honest measure of the weakness: retrieval is lexical, so a true synonym ("heart cycle"
-for a task called "Cardiac Cycle") returns nothing.
-
-On the 40-query synthetic set (clock pinned, reproducible): gate precision 1.00,
-precision@5 0.742, cross-project hit rate 0.325, **false injection 0.208 against a
-target of 0.10, which is missed** (it was 0.323 before this release's last change). That figure and the figures previously published
-for it could not be reproduced: v0.1.0 never gave its clock to the retriever, so its
-evaluation drifted with the date. This is documented, not rounded away.
+- **Knowledge base** over git history, notes and `CLAUDE.md` logs, script docstrings,
+  notebooks, training-log result lines, small result files, PDF / Word / PowerPoint,
+  Claude Code sessions, and allow-listed browser history and pages.
+- **Grounded retrieval**: rarity-weighted coverage with an absolute floor, anchor terms,
+  named-project preference, near-duplicate suppression, a hard 2,300-token budget.
+- **Optional semantic search** with a calibrated bar for automatic injection and a
+  labelled, generous explicit search ([docs/semantic.md](docs/semantic.md)).
+- **Claude Code integration**: a pre-prompt hook (thin client, ~150 ms) and an MCP server.
+- **Always growing**: a local daemon syncs every 30 minutes at low priority and starts at logon.
+- **Web UI** with a **demo mode** that never shows personal data ([docs/web-ui.md](docs/web-ui.md)).
+- **Full interaction history**: every prompt, what was served, and why each candidate was
+  kept or cut; replay, label and export to evaluation.
+- **Privacy guards**: whitelist walker, data-dump and identity-document guards, credential
+  and identifier dropping, read-only sources, re-auditable index.
+- **SQLite by default, Postgres + pgvector** behind the same storage protocol.
 
 ## Quickstart (Windows, Python 3.11+)
 
@@ -105,139 +62,161 @@ evaluation drifted with the date. This is documented, not rounded away.
 git clone https://github.com/ParthBiyani/ProjectMind.git
 cd ProjectMind
 py -m venv .venv
-.venv\Scripts\python -m pip install -e ".[mcp,docs]"
-.venv\Scripts\Activate.ps1                   # so `projectmind` is on your PATH
+.venv\Scripts\python -m pip install -e ".[mcp,docs]"     # add ,semantic for meaning search
+.venv\Scripts\Activate.ps1
 
-projectmind demo                              # see it first
-projectmind init                              # create the store, load the starter profile
-projectmind profile review                    # the starter statements describe the author: approve
-                                              # what is true of you, then add your own with `profile add`
-projectmind sources add "D:/Projects"         # what to read
+projectmind ui --demo                       # see it first: a fictional workspace in the browser
+projectmind init                            # create the store, load starter profile proposals
+projectmind sources add "D:/Projects"       # choose what to read (look inside first)
 projectmind sources add "~/.claude/projects" --kind transcripts --depth 0
-projectmind sync                              # read it (minutes the first time)
-projectmind install claude-code               # hook + MCP server, with backups
-projectmind schedule install                  # start the daemon at logon
-projectmind doctor                            # it runs the hook the way your agent would
+projectmind sync                            # read it (minutes the first time)
+projectmind install claude-code            # hook + MCP server, with backups; restart Claude Code
+projectmind schedule install                # start the daemon at logon
+projectmind ui                              # the dashboard on your own memory
+projectmind doctor                          # verifies everything, including a live hook run
 ```
 
-Before pointing it at a folder, look at what is in it: do not add folders of personal
-or financial documents. It skips obvious ones by name and drops identifiers, but the
-safest source is one you chose on purpose. `projectmind sources audit` re-checks
-what is already indexed.
-
-Ask it something:
+Ask from the terminal:
 
 ```powershell
 projectmind context "Why did we drop the profit factor column?" --project D:\Projects\MyApp
-projectmind history list            # everything it was asked and what it answered
-projectmind history show <id>       # why each passage was served or cut
-projectmind history replay <id>     # re-run an old question on today's code
+projectmind sources search "how did I handle rate limits"
+projectmind history list
 ```
 
-### Browser (optional, off by default)
-
-```powershell
-projectmind browser scan --dry-run   # what would be stored, storing nothing
-projectmind browser enable           # allow-listed documentation sites only
-```
-
-For page text, load the extension (Edge or Chrome) as described in
-[extension/README.md](extension/README.md). Its manifest limits it to the same
-allow-list, so the browser itself prevents it reading anything else.
-
-## How it answers
+## How it works
 
 ```
- hook ──localhost──► daemon (warm database)
-                       │
-                       ▼
- prompt ──► skip mechanical edits ──► profile slice (<= 800 tokens)
-                       ├────────────► history records (gate + hybrid retrieval)
-                       └────────────► source passages: rarity-weighted coverage,
-                                      one of two most specific terms required, deduplicated
-                                                │
-                                   hard budget: 2300 tokens total
-                                                │
-                                  verbatim excerpts + citations
+ folders / git / sessions / browser ──► walker ─► chunker ─► secret scan ─► index
+                                                                              │
+ Claude Code hook ──localhost──► daemon ──► get_context                       │
+                                              1 skip mechanical edits         │
+                                              2 profile slice                 │
+                                              3 history records (gated)  ◄────┤
+                                              4 cited passages (coverage) ◄───┘
+                                              5 optional meaning matches
+                                              6 budget ─► excerpts + citations
 ```
 
-The module map and the design rules are in [docs/architecture.md](docs/architecture.md);
-agent wiring in [docs/integration.md](docs/integration.md).
+The full story — the problem, why v0.1 failed on a real machine, every decision and the data
+behind it — is in **[docs/how-it-works.md](docs/how-it-works.md)**. Modules and design rules:
+[docs/architecture.md](docs/architecture.md).
 
-## Commands
+## Web UI
 
-| Command | What it does |
+`projectmind ui` opens the dashboard served by the daemon at `http://127.0.0.1:<port>/ui/`.
+Plain HTML/CSS/JS, dark theme, no external requests.
+
+| View | |
 |---|---|
-| `demo` | Guided tour on a fictional workspace (`--real -p "question"` asks your memory) |
-| `init`, `doctor`, `report` | Set up, verify (runs the hook), and measure what memory did |
-| `sources add / list / scan / remove / search / audit` | Choose what is read; query the raw index; re-check it against the privacy rules |
-| `sync` | One incremental pass over git, folders, sessions and browser |
-| `serve`, `daemon status / stop / sync / token`, `schedule install / remove / status` | The local daemon and starting it at logon |
-| `context "<prompt>" -p <dir>` | Show exactly what the agent would receive |
-| `history list / show / replay / label / export / purge` | Everything asked and answered |
-| `profile list / add / edit / remove / review / seed / sweep` | The always-on statements about how you work |
-| `browser status / enable / disable / allow / deny / scan` | Browser history, allow-listed |
-| `install claude-code / rules / status` | Hook and MCP registration, with backups |
-| `eval run / compare / real` | The synthetic set, and your own questions |
-| `ingest local / github`, `fingerprint`, `review` | Git ingestion, project similarity, the monthly review |
-| `mcp`, `export`, `hook` | MCP server on stdio, profile backup, hook entry points |
+| Ask | The answer with cited excerpts, tokens, latency, the "why" trace and feedback |
+| Search | By words and by meaning, each result labelled |
+| History · Knowledge · Profile | Every interaction; what is indexed and Sync now; approve or reject statements |
+| Evaluation · System | Real-data report (and the scripted tour in demo mode); daemon and settings |
 
-## MCP tools
+`projectmind ui --demo` serves a fictional, fully indexed workspace on a free port, for demos.
 
-| Tool | Purpose |
+| History | Knowledge |
 |---|---|
-| `get_context(prompt, project_path)` | The front door. Skip it when a hook already injected a block. |
-| `search_memory(query, project_path, limit)` | Direct search, when the user asks what they did before. |
-| `memory_feedback(bundle_id, useful, note)` | Whether a block helped, by the id in its marker. |
-| `memory_stats(days)` | Usage figures as JSON. |
+| ![History](docs/assets/ui-history.png) | ![Knowledge](docs/assets/ui-knowledge.png) |
+
+## Browser extension
+
+A Manifest V3 extension for **Edge and Chrome** captures open tabs and readable text from
+allow-listed documentation sites (or pages you explicitly remember). Its manifest only grants
+the allow-listed hosts, so the browser itself prevents it reading anything else. Install steps:
+[extension/README.md](extension/README.md).
+
+## Privacy
+
+Local only; no network call on the retrieval path. The daemon and web UI listen on loopback
+with a bearer token and a Host check. Credentials and personal identifiers are dropped, not
+redacted; identity documents are never opened; browser reading is opt-in and allow-listed.
+Details, each backed by a test: [docs/privacy.md](docs/privacy.md).
 
 ## Configuration
 
-Read from the environment and from `~/.projectmind/.env`; never from a project's `.env`.
+Read from the environment and `~/.projectmind/.env` (never a project's `.env`).
 
-| Variable | Default | Notes |
+| Variable | Default | |
 |---|---|---|
-| `PROJECTMIND_HOME` | `~/.projectmind` | Database, sources, logs, token |
-| `PROJECTMIND_DB_URL` | unset | A `postgresql://` URL switches to Postgres + pgvector |
-| `PROJECTMIND_AUTHORS` | git `user.email` | Comma-separated emails whose commits are yours |
-| `PROJECTMIND_EXCLUDED_REPOS` | empty | Globs never read; their interactions are stored as `minimal` |
-| `PROJECTMIND_HISTORY` | `full` | `full`, `minimal` (hashed metadata) or `off` |
-| `PROJECTMIND_EMBEDDING_PROVIDER` | `auto` | Thresholds are calibrated for `hashing`; set it explicitly |
-| `PROJECTMIND_DAEMON_PORT` | `47615` | Fixed so the browser extension can find it |
-| `PROJECTMIND_DAEMON_SYNC_MINUTES` | `30` | `0` turns the scheduler off |
-| `PROJECTMIND_EVIDENCE_COVERAGE_FLOOR` | `0.6` | How much of a question a passage must cover |
-| `GITHUB_TOKEN` | unset | Only for `ingest github` |
+| `PROJECTMIND_HOME` | `~/.projectmind` | database, sources, logs, token |
+| `PROJECTMIND_DB_URL` | unset | a `postgresql://` URL switches to Postgres + pgvector |
+| `PROJECTMIND_AUTHORS` | git `user.email` | whose commits are yours |
+| `PROJECTMIND_HISTORY` | `full` | `full`, `minimal` or `off` |
+| `PROJECTMIND_SEMANTIC` | `false` | meaning search (`projectmind semantic enable`) |
+| `PROJECTMIND_EVIDENCE_COVERAGE_FLOOR` | `0.6` | how much of a question a passage must cover |
+| `PROJECTMIND_DAEMON_PORT` | `47615` | fixed so the extension can find it |
 
-Full list with rationale: [`config.py`](src/projectmind/config.py).
+All settings with rationale: [`config.py`](src/projectmind/config.py).
 
-## Storage
+## Commands
 
-SQLite by default (a memory that needs a daemon is unavailable exactly when you reach
-for it); Postgres with pgvector behind the same `Store` protocol and the same parity
-suite, run against a real container in CI.
+| | |
+|---|---|
+| `ui [--demo]`, `demo` | Dashboard; guided tour on a fictional workspace |
+| `sources add / list / scan / search / audit`, `sync` | What is read; one incremental pass |
+| `install claude-code`, `serve`, `daemon status / stop / token`, `schedule install` | Integration and the always-on daemon |
+| `context`, `history list / show / replay / label / export` | What the agent would receive; everything asked |
+| `profile review / add / edit`, `semantic status / enable / index`, `browser enable / scan` | Profile, meaning search, browser |
+| `eval run / real`, `doctor` | Measure it; verify the install |
 
-## Status and known gaps
+MCP tools: `get_context`, `search_sources`, `search_memory`, `memory_feedback`, `memory_stats`
+([docs/integration.md](docs/integration.md)).
 
-v0.2.0. Details in [docs/roadmap.md](docs/roadmap.md#known-gaps-after-v020).
+## Project layout
 
-- Vocabulary mismatch means silence: retrieval is lexical with stemming.
-- The history-record path misses its false-injection target (see above).
-- LLM-written notes are not implemented; nothing in this version calls a model.
-- The browser extension is tested for logic and manifest safety, not yet in a browser in CI.
+```
+src/projectmind/
+  service.py      the front door (get_context, search, history)
+  retrieval/      cited-passage and history-record retrieval
+  semantic.py     optional meaning search
+  gate/           prompt analysis, gating, token budget
+  sources/        walker, chunker, readers, transcripts, browser, privacy audit
+  ingestion/      git and GitHub extractors
+  storage/        Store protocol, SQLite and Postgres backends, migrations
+  daemon.py       local server: hook answers, scheduler, capture, web UI
+  web/            dashboard and its JSON API
+  hook_entry.py   standard-library hook client
+  mcp/  cli/  evaluation/  profile/  reflection/
+extension/        Edge / Chrome extension
+eval/             synthetic evaluation set and baselines
+```
 
 ## Development
 
 ```powershell
 .venv\Scripts\python -m pip install -e ".[dev]"
-pytest                  # 730+ tests; the Postgres half skips without a server
+pytest                      # the Postgres half skips without a server
 ruff check . ; ruff format --check .
-mypy                    # strict
+mypy                        # strict
 node --test extension/test/lib.test.js
 ```
 
-CI runs lint, strict type checking, tests on Python 3.11, 3.12 and 3.13, a Windows
-job, and the storage parity suite against a pgvector container.
+CI runs lint, strict types, tests on Python 3.11 / 3.12 / 3.13, a Windows job and the storage
+parity suite against a pgvector container.
+
+## Documentation
+
+| | |
+|---|---|
+| [How it works](docs/how-it-works.md) | The story, the decisions and the data, for newcomers |
+| [Architecture](docs/architecture.md) | Modules, request path, design rules, storage |
+| [Evaluation](docs/evaluation.md) | Both evaluation sets, results and caveats |
+| [Semantic search](docs/semantic.md) · [Web UI](docs/web-ui.md) | Optional meaning search; the dashboard |
+| [Sources](docs/sources.md) · [Privacy](docs/privacy.md) | What is read and never read |
+| [Integration](docs/integration.md) | Hooks and MCP |
+| [Scaling](docs/scaling.md) | How the design would serve a million users |
+| [Roadmap](docs/roadmap.md) · [Changelog](CHANGELOG.md) | What changed, what is next |
+
+## Known limitations
+
+- Automatic injection is precision-first: a question worded very differently from your notes
+  may get nothing (semantic search narrows, not closes, this).
+- Synthetic false injection on the history-record path misses its target (0.174 vs 0.10).
+- The semantic threshold is calibrated on a small set; it is off by default.
+- Single user, single machine. Model-written notes are not implemented.
 
 ## License
 
-MIT. See [LICENSE](LICENSE).
+MIT — see [LICENSE](LICENSE).
