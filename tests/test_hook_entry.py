@@ -125,3 +125,46 @@ class TestAsASubprocess:
         assert result.returncode == 0
         assert result.stdout == b""
         assert result.stderr == b""
+
+
+class TestRevive:
+    """A daemon the user wants always on is brought back by the next prompt."""
+
+    @pytest.fixture
+    def spawned(self, monkeypatch: pytest.MonkeyPatch) -> list[list[str]]:
+        import subprocess
+
+        calls: list[list[str]] = []
+        monkeypatch.setattr(subprocess, "Popen", lambda command, **_: calls.append(command))
+        return calls
+
+    def test_nothing_is_started_unless_the_user_asked_for_always_on(
+        self, tmp_path: Path, spawned: list[list[str]]
+    ) -> None:
+        assert hook_entry.revive_daemon(tmp_path) is False
+        assert spawned == []
+
+    def test_it_is_started_detached_when_always_on(
+        self, tmp_path: Path, spawned: list[list[str]]
+    ) -> None:
+        (tmp_path / hook_entry.AUTOSTART_FILE).write_text("", encoding="utf-8")
+        assert hook_entry.revive_daemon(tmp_path) is True
+        [command] = spawned
+        assert command[-4:] == ["-I", "-m", "projectmind.cli", "serve"]
+
+    def test_a_burst_of_prompts_starts_it_once(
+        self, tmp_path: Path, spawned: list[list[str]]
+    ) -> None:
+        (tmp_path / hook_entry.AUTOSTART_FILE).write_text("", encoding="utf-8")
+        assert hook_entry.revive_daemon(tmp_path) is True
+        assert hook_entry.revive_daemon(tmp_path) is False
+        assert len(spawned) == 1
+
+    def test_a_daemon_that_announced_itself_but_is_gone_is_not_alive(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("PROJECTMIND_HOME", str(tmp_path))
+        (tmp_path / hook_entry.DAEMON_FILE).write_text(
+            '{"port": 9, "token": "x", "pid": 1}', encoding="utf-8"
+        )
+        assert hook_entry.daemon_alive(timeout=0.3) is False

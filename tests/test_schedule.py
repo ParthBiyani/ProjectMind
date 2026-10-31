@@ -117,3 +117,18 @@ class TestRemoveAndStatus:
         result = runner.invoke(app, ["schedule", "status"])
         assert result.exit_code == 0
         assert "Startup launcher" in result.stdout
+
+
+class TestAlwaysOn:
+    def test_install_marks_the_daemon_as_always_on_and_remove_unmarks_it(
+        self, startup: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from projectmind.config import get_settings
+        from projectmind.hook_entry import AUTOSTART_FILE
+
+        marker = get_settings().home / AUTOSTART_FILE
+        monkeypatch.setattr(subprocess, "run", FakeSchtasks(allow_create=False))
+        assert runner.invoke(app, ["schedule", "install"]).exit_code == 0
+        assert marker.is_file()
+        assert runner.invoke(app, ["schedule", "remove"]).exit_code == 0
+        assert not marker.exists()

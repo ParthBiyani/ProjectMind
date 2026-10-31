@@ -44,6 +44,11 @@ DELIVERY_TIMEOUT_SECONDS = 0.8
 DAEMON_FILE = "daemon.json"
 BUNDLE_HEADER = "X-Projectmind-Bundle"
 NO_DAEMON_ENV = "PROJECTMIND_NO_DAEMON"
+#: Written by `projectmind schedule install`: the user wants the daemon always on.
+AUTOSTART_FILE = "autostart"
+REVIVE_STAMP = "daemon.revive"
+#: At most one restart attempt in this many seconds, however many prompts arrive.
+REVIVE_EVERY_SECONDS = 300.0
 
 
 def read_event(raw: bytes) -> dict[str, Any]:
@@ -126,15 +131,82 @@ def _post(
         connection.close()
 
 
+def daemon_alive(timeout: float = 0.5) -> bool:
+    """Whether a daemon answers, not merely whether one announced itself once."""
+    info = daemon_info()
+    if info is None:
+        return False
+    connection = http.client.HTTPConnection("127.0.0.1", int(info["port"]), timeout=timeout)
+    try:
+        connection.request("GET", "/health")
+        return connection.getresponse().status == 200
+    except (OSError, http.client.HTTPException):
+        return False
+    finally:
+        connection.close()
+
+
+def revive_daemon(home: Path | None = None) -> bool:
+    """Start the daemon again if the user wants it always on and it is not running.
+
+    The logon launcher starts it once per login. If it stops in between (a crash, an
+    update, `daemon stop`), the next prompt brings it back; this prompt is answered
+    in process meanwhile. Detached and windowless, at most once every few minutes.
+    """
+    home = home or _home()
+    if not (home / AUTOSTART_FILE).is_file():
+        return False
+    stamp = home / REVIVE_STAMP
+    try:
+        import time
+
+        if time.time() - stamp.stat().st_mtime < REVIVE_EVERY_SECONDS:
+            return False
+    except OSError:
+        pass
+    try:
+        import subprocess
+
+        stamp.write_text("", encoding="utf-8")
+        interpreter = Path(sys.executable)
+        windowless = interpreter.with_name("pythonw.exe")
+        command = [str(windowless if windowless.exists() else interpreter), "-I", "-m",
+                   "projectmind.cli", "serve"]  # fmt: skip
+        flags = 0
+        if sys.platform == "win32":
+            flags = (
+                subprocess.DETACHED_PROCESS
+                | subprocess.CREATE_NEW_PROCESS_GROUP
+                | subprocess.CREATE_NO_WINDOW
+            )
+        subprocess.Popen(
+            command,
+            cwd=str(home),
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            close_fds=True,
+            creationflags=flags,
+            start_new_session=sys.platform != "win32",
+        )
+    except Exception:
+        return False
+    return True
+
+
 def ask_daemon(raw: bytes) -> Reply | None:
     """The reply from a running daemon, or None to fall back to doing it ourselves."""
     if os.environ.get(NO_DAEMON_ENV):
         return None
     info = daemon_info()
     if info is None:
+        revive_daemon()
         return None
     try:
         status, body, headers = _post(info, "/context", raw, DAEMON_TIMEOUT_SECONDS)
+    except ConnectionRefusedError:
+        revive_daemon()  # announced but gone: it crashed or the machine slept and woke
+        return None
     except (OSError, http.client.HTTPException):
         return None
     if status == 204:
@@ -292,6 +364,8 @@ def main(argv: list[str] | None = None) -> int:
                     if reply.bundle_id is not None:
                         confirm_delivery(reply.bundle_id, delivered)
         elif command == "session-start":
+            if not os.environ.get(NO_DAEMON_ENV) and not daemon_alive():
+                revive_daemon()
             session_start(read_event(raw))
     except Exception as exc:  # last line of defence: the editor must never see this
         with contextlib.suppress(Exception):
