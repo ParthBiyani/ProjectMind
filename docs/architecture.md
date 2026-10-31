@@ -62,8 +62,8 @@ as one, with the reason, because "did not inject" is a measurable outcome.
   folders -----> walker (whitelist, data-dump guard, identity-document guard)
   git history -> extractors (no invented reasons)           \
   sessions ----> turns (what was asked, the closing reply)   >-> chunks (exact line
-  browser -----> allow-listed pages, queries that led to one /    spans / locators)
-  extension ---> page text, allow-listed or explicitly remembered      |
+  browser -----> pages (minus never-capture), their searches /    spans / locators)
+  extension ---> page text, any site but the never-capture list     |
                                                                        v
                                        credential + identifier scan (drop, never redact)
                                                                        |
@@ -109,7 +109,7 @@ extension/         the Edge and Chrome extension (Manifest V3, plain JavaScript)
 | MCP server | deliberate asks | `get_context`, `search_sources`, `search_memory`, `memory_feedback`, `memory_stats` |
 | CLI | operating it | `projectmind ...`; see the README |
 | Web UI | seeing and demoing it | `projectmind ui`, `projectmind ui --demo`; see [web-ui.md](web-ui.md) |
-| Browser extension | capturing reading | Manifest V3, allow-listed hosts only |
+| Browser extension | capturing reading | Manifest V3; every site except the never-capture list and this machine |
 
 Every surface calls the same `MemoryService`, so behaviour does not depend on which one is
 used. Semantic search runs only where its vectors are loaded (the daemon, the MCP server,
@@ -132,8 +132,9 @@ explicit CLI search); the in-process hook fallback is lexical.
 6. **Sources are read-only.** A scan lists and reads; it never writes to a source
    and never touches version control state.
 7. **Private by construction.** Credentials and personal identifiers are dropped,
-   identity documents are never opened, browser reading is opt-in and
-   allow-listed, and the daemon answers only on loopback with a token.
+   identity documents are never opened, browser reading is opt-in with a
+   never-capture list (and never this machine), and the daemon answers only on
+   loopback with a token.
 
 ## Storage
 

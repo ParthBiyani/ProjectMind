@@ -62,7 +62,7 @@ only the synthetic test set.
 folders ──► walker ──► chunker ──► secret / identifier scan ──► index
 git ──────► commit extractor ───────────────────────────────────┘
 sessions ─► turn distiller ─────────────────────────────────────┘
-browser ──► allow-listed history and pages ─────────────────────┘
+browser ──► history and pages, minus never-capture ──────────────┘
 ```
 
 - **Walker**: a whitelist of file types that carry knowledge. Skips datasets, build output,

@@ -42,7 +42,7 @@ Synthetic, reproducible 40-query set (pinned clock): gate precision **1.000**, p
 
 - **Knowledge base** over git history, notes and `CLAUDE.md` logs, script docstrings,
   notebooks, training-log result lines, small result files, PDF / Word / PowerPoint,
-  Claude Code sessions, and allow-listed browser history and pages.
+  Claude Code sessions, and browser history and pages (minus a never-capture list).
 - **Grounded retrieval**: rarity-weighted coverage with an absolute floor, anchor terms,
   named-project preference, near-duplicate suppression, a hard 2,300-token budget.
 - **Optional semantic search** with a calibrated bar for automatic injection and a
@@ -122,16 +122,17 @@ Plain HTML/CSS/JS, dark theme, no external requests.
 
 ## Browser extension
 
-A Manifest V3 extension for **Edge and Chrome** captures open tabs and readable text from
-allow-listed documentation sites (or pages you explicitly remember). Its manifest only grants
-the allow-listed hosts, so the browser itself prevents it reading anything else. Install steps:
+A Manifest V3 extension for **Edge and Chrome** captures the readable text of the pages you
+read, except sites on a never-capture list you edit in its options (banking, brokers, mail,
+social, sign-in pages and more are on it from the start). It never reads this machine or
+private windows, and skips pages that ask for a password. Install steps:
 [extension/README.md](extension/README.md).
 
 ## Privacy
 
 Local only; no network call on the retrieval path. The daemon and web UI listen on loopback
 with a bearer token and a Host check. Credentials and personal identifiers are dropped, not
-redacted; identity documents are never opened; browser reading is opt-in and allow-listed.
+redacted; identity documents are never opened; browser reading is opt-in, with a never-capture list.
 Details, each backed by a test: [docs/privacy.md](docs/privacy.md).
 
 ## Configuration

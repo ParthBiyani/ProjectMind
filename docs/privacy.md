@@ -26,9 +26,9 @@ with them. Each statement is enforced in code and covered by a test.
 |---|---|---|
 | Passages from your files | yes | verbatim, with citation; credentials dropped |
 | Every question and answer | yes (`PROJECTMIND_HISTORY=full`) | for audit and replay. `minimal` keeps hashed metadata; `off` keeps nothing |
-| Browser history | **off** | allow-listed domains only, no query string or fragment |
+| Browser history | **off** | every site except the never-capture list and this machine; no query string or fragment |
 | Passage embeddings (semantic search) | **off** | numbers derived from the passages, stored beside them; removed with their document |
-| Browser page text | **off** | needs the extension and `browser enable`; allow-listed domains, or a page you explicitly remember |
+| Browser page text | **off** | needs the extension and `browser enable`; every site except the never-capture list, this machine, and pages asking for a password or card number |
 
 Projects matching `PROJECTMIND_EXCLUDED_REPOS` are never read, and their
 interactions are stored as `minimal` whatever the setting.
@@ -37,15 +37,23 @@ interactions are stored as `minimal` whatever the setting.
 
 - Reading is **opt-in** (`projectmind browser enable`) and begins with
   `browser scan --dry-run`, which counts what would be stored and stores nothing.
-- Only pages on the **allow-list** (documentation, GitHub, Kaggle, arXiv and
-  similar) are considered. Mail, banking, social media and shopping are never read.
-- A **search query is kept only if you opened an allowed page within minutes of it.**
-  A search that led nowhere you allowed is not stored at all.
+- Every site is read **except the never-capture list**, which starts with banking,
+  brokers (Kite/Zerodha, Fyers and others), payments, mail, chat, social media, sign-in
+  pages, password managers, government identity and tax sites, health, personal
+  documents, cloud consoles and AI chats. Edit it in the extension's options, with the
+  popup's "Never capture this site", or `projectmind browser deny / allow`. Adding a
+  site also deletes what was already read from it.
+- **This machine and the local network are never read**, whatever the list says:
+  localhost, private addresses and `.local` names, where dashboards and development
+  servers (including ProjectMind's own) live. The extension's manifest excludes them.
+- A page that **asks for a password or a card number** is not read, on any site.
+- Until the extension has received the list from the daemon it reads nothing
+  (fail closed), and it never runs in private windows.
+- A **search query is kept only if you opened a readable page within minutes of it.**
 - The history database is **copied** and the copy is read; the browser's own file is
   never opened for writing.
-- `deny` beats `allow`, and beats even "Remember this page".
-- The extension's manifest grants it access to the allow-listed sites **only**
-  (no `<all_urls>`), so the browser itself prevents it reading anything else.
+- The list beats "Remember this page". The daemon applies every rule again; the
+  extension is a convenience, not the boundary.
 
 ## Sessions
 
