@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>ProjectMind</title>
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="app.css">
+</head>
+<body>
+  <div class="backdrop" aria-hidden="true"></div>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="#/ask">
+        <img src="favicon.svg" alt="" width="28" height="28">
+        <span>Project<b>Mind</b></span>
+      </a>
+      <nav id="nav" aria-label="Views"></nav>
+      <div class="sidebar-foot">
+        <div id="mode-badge" class="mode-badge" hidden>Demo workspace</div>
+        <div class="daemon"><span id="daemon-dot" class="dot"></span><span id="daemon-text">connecting</span></div>
+        <div id="version" class="muted small"></div>
+      </div>
+    </aside>
+    <main class="main">
+      <header class="topbar">
+        <div>
+          <h1 id="view-title">Ask</h1>
+          <p id="view-sub" class="muted"></p>
+        </div>
+        <div id="topbar-stats" class="topbar-stats"></div>
+      </header>
+      <section id="view" class="view" aria-live="polite"></section>
+    </main>
+  </div>
+  <aside id="drawer" class="drawer" hidden>
+    <div class="drawer-head">
+      <h2 id="drawer-title">Interaction</h2>
+      <button id="drawer-close" class="icon-btn" aria-label="Close">&times;</button>
+    </div>
+    <div id="drawer-body" class="drawer-body"></div>
+  </aside>
+  <div id="toast" class="toast" role="status" hidden></div>
+  <script src="app.js"></script>
+</body>
+</html>
