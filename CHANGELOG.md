@@ -3,6 +3,31 @@
 Notable changes, newest first. Follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 loosely and [Semantic Versioning](https://semver.org/spec/v2.0.0.html) strictly.
 
+## [Unreleased]
+
+### Changed
+
+- **The browser reads every site except a never-capture list**, instead of only an
+  allow-list. The list starts with banking, brokers (Kite/Zerodha, Fyers and others),
+  payments, mail, chat, social media, sign-in pages, password managers, government
+  identity and tax sites, health, personal documents, cloud consoles, AI chats and
+  shopping. It is edited in the extension's options, with the popup's "Never capture
+  this site", or `projectmind browser deny / allow`; adding a site also forgets what was
+  already read from it. One list governs the extension, the daemon and history reading.
+  An existing `browser.yaml` moves to the new rule on first load.
+- This machine and the local network are never read, whatever the list says; pages
+  asking for a password or a card number are skipped; the extension never runs in
+  private windows and reads nothing until it has the list (fail closed).
+
+### Fixed
+
+- The extension's timers are re-created on every browser start (Chromium does not
+  guarantee alarms survive a restart), and it fetches the list again on start.
+- The embedding model is kept in `~/.projectmind/models` instead of the temp folder,
+  which disk cleanup may empty.
+- A daemon set to start at logon is restarted by the next prompt or session if it
+  stops in between (at most once every five minutes, detached and windowless).
+
 ## [0.3.0] — 2026-10-31
 
 Closing the measured gaps, and making the system something you can watch work.

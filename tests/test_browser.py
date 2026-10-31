@@ -13,6 +13,7 @@ from projectmind.config import reset_settings
 from projectmind.sources.browser import (
     BrowserConfig,
     HistoryDatabase,
+    clean_domain,
     clean_url,
     index_history,
     page_chunk,
@@ -105,35 +106,82 @@ class TestUrls:
         assert clean_url("not a url") is None
 
 
-class TestAllowList:
-    def test_defaults_permit_documentation_and_nothing_else(self) -> None:
+class TestNeverCaptureList:
+    def test_every_site_is_read_except_the_list(self) -> None:
         cfg = config()
         assert cfg.permits("docs.python.org")
-        assert cfg.permits("www.github.com")
-        assert cfg.permits("fastapi.readthedocs.io")
+        assert cfg.permits("some-blog.example.org")
         assert not cfg.permits("mail.google.com")
-        assert not cfg.permits("netbanking.example.com")
         assert not cfg.permits("www.facebook.com")
 
-    def test_a_subdomain_of_an_allowed_domain_is_allowed(self) -> None:
-        assert config().permits("gist.github.com")
+    def test_brokers_and_banks_are_on_the_list_from_the_start(self) -> None:
+        cfg = config()
+        for host in (
+            "kite.zerodha.com",
+            "kite.com",
+            "trade.fyers.in",
+            "fyers.com",
+            "netbanking.hdfcbank.com",
+            "accounts.google.com",
+            "claude.ai",
+        ):
+            assert not cfg.permits(host), host
 
-    def test_deny_wins_over_allow(self) -> None:
-        cfg = config(deny=("github.com",))
-        assert not cfg.permits("github.com")
+    def test_a_subdomain_of_a_listed_site_is_not_read(self) -> None:
+        assert not config(deny=("example.com",)).permits("app.example.com")
 
-    def test_a_lookalike_domain_is_not_allowed(self) -> None:
-        assert not config().permits("github.com.evil.example")
-        assert not config().permits("notgithub.com")
+    def test_a_lookalike_domain_is_not_caught_by_the_list(self) -> None:
+        assert config(deny=("kite.com",)).permits("notkite.com")
+        assert config(deny=("kite.com",)).permits("kite.com.example.org")
+
+    @pytest.mark.parametrize(
+        "host",
+        [
+            "localhost",
+            "127.0.0.1",
+            "192.168.1.5",
+            "10.0.0.2",
+            "172.20.1.1",
+            "nas.local",
+            "router",
+            "app.localhost",
+            "::1",
+        ],
+    )
+    def test_this_machine_and_the_network_are_never_read(self, host: str) -> None:
+        assert not config(deny=()).permits(host)
+
+    def test_an_old_allow_list_config_moves_to_the_new_rule(self, tmp_path: Path) -> None:
+        (tmp_path / "browser.yaml").write_text(
+            "enabled: true\nallow: [github.com]\ndeny: [example.org]\n", encoding="utf-8"
+        )
+        loaded = BrowserConfig.load(tmp_path)
+        assert loaded.permits("some-blog.example.com")
+        assert not loaded.permits("example.org")
+        assert not loaded.permits("kite.com")
+        loaded.save(tmp_path)
+        again = BrowserConfig.load(tmp_path)
+        assert again.deny == loaded.deny
+
+    def test_a_site_taken_off_the_list_stays_off_after_saving(self, tmp_path: Path) -> None:
+        BrowserConfig(enabled=True).allowing("linkedin.com").save(tmp_path)
+        assert BrowserConfig.load(tmp_path).permits("www.linkedin.com")
+
+    def test_what_a_person_types_becomes_a_site_name(self) -> None:
+        assert clean_domain("https://www.Kite.com/login?x=1") == "kite.com"
+        assert clean_domain("*.example.com") == "example.com"
+        assert clean_domain("not a domain") is None
+        assert clean_domain("localhost") is None
 
 
 class TestReading:
-    def test_only_allowed_pages_are_read(self, browser: FakeBrowser) -> None:
+    def test_listed_sites_are_not_read(self, browser: FakeBrowser) -> None:
         browser.visit(
             "https://docs.python.org/3/library/re.html", "re - Python docs", NOW - timedelta(days=2)
         )
         browser.visit("https://mail.google.com/mail/u/0/", "Inbox", NOW - timedelta(days=1))
-        browser.visit("https://bank.example.com/account", "My account", NOW - timedelta(days=1))
+        browser.visit("https://netbanking.hdfcbank.com/acct", "My account", NOW - timedelta(days=1))
+        browser.visit("http://localhost:3000/admin", "Admin", NOW - timedelta(days=1))
         pages = read_pages(browser.done(), config(), now=NOW)
         assert [page.url for page in pages] == ["https://docs.python.org/3/library/re.html"]
 
@@ -165,12 +213,12 @@ class TestReading:
         [page] = read_pages(browser.done(), config(), now=NOW)
         assert page.queries == ["pgvector hnsw index tuning"]
 
-    def test_a_search_that_led_nowhere_allowed_is_dropped_entirely(
+    def test_a_search_that_led_only_to_a_listed_site_is_dropped_entirely(
         self, browser: FakeBrowser
     ) -> None:
         at = NOW - timedelta(days=2)
         browser.search("private personal matter", at)
-        browser.visit("https://shop.example.com/item", "A shop", at + timedelta(minutes=1))
+        browser.visit("https://www.amazon.in/item", "A shop", at + timedelta(minutes=1))
         browser.visit("https://docs.python.org/3/library/re.html", "re", at + timedelta(days=1))
         [page] = read_pages(browser.done(), config(), now=NOW)
         assert page.queries == []
@@ -210,7 +258,7 @@ class TestIndexing:
         assert "Found by searching: sqlite fts5 bm25 ranking" in hit.chunk.text
         assert hit.chunk.locator.startswith("visited")
 
-    def test_nothing_from_a_disallowed_site_is_stored(self, store: Store, tmp_path: Path) -> None:
+    def test_nothing_from_a_listed_site_is_stored(self, store: Store, tmp_path: Path) -> None:
         index_history(store, config(), databases=[self.make(tmp_path)], now=NOW)
         assert store.search_chunks(["inbox"]) == []
         assert all("mail.google" not in doc.uri for doc in store.list_documents())
@@ -227,7 +275,7 @@ class TestIndexing:
     ) -> None:
         database = self.make(tmp_path)
         index_history(store, config(), databases=[database], now=NOW)
-        later = index_history(store, config(deny=("sqlite.org",)), databases=[database], now=NOW)
+        later = index_history(store, config().denying("sqlite.org"), databases=[database], now=NOW)
         assert later.removed == 1
         assert store.search_chunks(["fts5"]) == []
 
@@ -290,15 +338,16 @@ class TestCommands:
         result = runner.invoke(app, ["browser", "scan"])
         assert result.exit_code == 1
 
-    def test_enable_allow_deny_roundtrip(self, home: Path) -> None:
+    def test_enable_deny_allow_roundtrip(self, home: Path) -> None:
         assert runner.invoke(app, ["browser", "enable", "--days", "30"]).exit_code == 0
-        assert runner.invoke(app, ["browser", "allow", "docs.example.com"]).exit_code == 0
-        assert runner.invoke(app, ["browser", "deny", "github.com"]).exit_code == 0
+        assert runner.invoke(app, ["browser", "deny", "https://www.example.com/x"]).exit_code == 0
+        assert runner.invoke(app, ["browser", "allow", "linkedin.com"]).exit_code == 0
         loaded = BrowserConfig.load(home)
         assert loaded.enabled
         assert loaded.days == 30
-        assert loaded.permits("docs.example.com")
-        assert not loaded.permits("github.com")
+        assert not loaded.permits("example.com")
+        assert loaded.permits("www.linkedin.com")
+        assert runner.invoke(app, ["browser", "allow", "never-listed.org"]).exit_code == 1
 
     def test_a_dry_run_works_while_off_and_with_no_browser(self) -> None:
         result = runner.invoke(app, ["browser", "scan", "--dry-run"])

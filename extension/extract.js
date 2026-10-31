@@ -1,6 +1,6 @@
 /*
  * Reads the readable text of the current page. Injected as a content script on
- * allowed domains, and on demand by "Remember this page".
+ * sites not on the never-capture list, and on demand by "Remember this page".
  *
  * It uses what the browser already renders: `innerText` respects visibility, so
  * hidden menus and collapsed sections are not read. Navigation, headers, footers,

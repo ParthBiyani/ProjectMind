@@ -75,6 +75,20 @@ def _task_registered() -> bool:
     return _run("/Query", "/TN", TASK_NAME).returncode == 0
 
 
+def _mark_autostart(on: bool) -> None:
+    """Tell the hook the daemon should always run, so it restarts it if it stops."""
+    from projectmind.config import get_settings
+    from projectmind.hook_entry import AUTOSTART_FILE
+
+    marker = get_settings().ensure_home() / AUTOSTART_FILE
+    if on:
+        marker.write_text(
+            "the daemon starts at logon and is restarted if it stops\n", encoding="utf-8"
+        )
+    else:
+        marker.unlink(missing_ok=True)
+
+
 @app.command("install")
 def install() -> None:
     """Make the daemon start whenever you log in."""
@@ -83,6 +97,7 @@ def install() -> None:
         "/Create", "/TN", TASK_NAME, "/TR", daemon_command(),
         "/SC", "ONLOGON", "/RL", "LIMITED", "/F",
     )  # fmt: skip
+    _mark_autostart(True)
     if result.returncode == 0:
         ok(f"registered '{TASK_NAME}' in Task Scheduler to start at logon")
         note("it starts the next time you log in; to start it now: projectmind serve")
@@ -112,6 +127,7 @@ def remove() -> None:
     if target.exists():
         target.unlink()
         removed.append("Startup launcher")
+    _mark_autostart(False)
     if not removed:
         fail("nothing to remove")
         raise typer.Exit(code=1)

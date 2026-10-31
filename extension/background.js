@@ -75,12 +75,31 @@ async function flush() {
   await chrome.storage.local.set({ queue: remaining });
 }
 
+// The never-capture list lives in the daemon (one list for the extension, the
+// history reader and the CLI). A copy is kept here for the content scripts.
+async function syncConfig() {
+  const outcome = await post('config', {});
+  if (outcome.ok && outcome.result && Array.isArray(outcome.result.deny)) {
+    await chrome.storage.local.set({ deny: outcome.result.deny, enabled: outcome.result.enabled });
+  }
+  return outcome;
+}
+
+async function changeDeny(change) {
+  const outcome = await post('deny', change);
+  if (outcome.ok && outcome.result && Array.isArray(outcome.result.deny)) {
+    await chrome.storage.local.set({ deny: outcome.result.deny });
+  }
+  return outcome;
+}
+
 async function snapshotTabs() {
   const { paused } = await settings();
   if (paused) return;
+  const { deny } = await chrome.storage.local.get('deny');
   const tabs = await chrome.tabs.query({});
   const open = tabs
-    .filter((tab) => tab.url && PM.cleanUrl(tab.url))
+    .filter((tab) => tab.url && PM.cleanUrl(tab.url) && PM.permits(new URL(tab.url).hostname, deny))
     .map((tab) => ({ url: PM.cleanUrl(tab.url), title: tab.title || '' }));
   await deliver('tabs', { tabs: open });
 }
@@ -110,8 +129,9 @@ chrome.runtime.onMessage.addListener((message, _sender, reply) => {
     } else if (message.kind === 'remember') {
       reply(await rememberActivePage());
     } else if (message.kind === 'test') {
-      const outcome = await post('config', {});
-      reply(outcome);
+      reply(await syncConfig());
+    } else if (message.kind === 'deny') {
+      reply(await changeDeny({ add: message.add, remove: message.remove }));
     } else {
       reply({ ok: false });
     }
@@ -119,14 +139,18 @@ chrome.runtime.onMessage.addListener((message, _sender, reply) => {
   return true; // answer asynchronously
 });
 
-chrome.runtime.onInstalled.addListener(() => {
+// Alarms are not guaranteed to survive a browser restart, so they are created on
+// every start as well as on install (creating one that exists just replaces it).
+function start() {
   chrome.alarms.create('flush', { periodInMinutes: 1 });
   chrome.alarms.create('tabs', { periodInMinutes: 2 });
-});
+  syncConfig().then(flush);
+}
+
+chrome.runtime.onInstalled.addListener(start);
+chrome.runtime.onStartup.addListener(start);
 
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === 'flush') flush();
-  if (alarm.name === 'tabs') snapshotTabs();
+  if (alarm.name === 'tabs') syncConfig().then(snapshotTabs);
 });
-
-chrome.runtime.onStartup.addListener(flush);

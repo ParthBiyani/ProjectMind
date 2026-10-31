@@ -14,8 +14,8 @@ came from. Nothing is summarised, and nothing is served without a citation.
 | Result files | small `.json` files in `experiments/`, `results/` and similar | `path (json)` |
 | Documents | PDF, Word and PowerPoint | `file.pdf (page 3)`, `(slide 2)` |
 | Claude Code sessions | what you asked and the closing reply, per turn | `session.jsonl (turn 19, date)` |
-| Browser history | allow-listed pages and the searches that led to them | the page URL |
-| Browser extension | page text read for 20 s on allow-listed sites | the page URL and date |
+| Browser history | pages on every site except the never-capture list, and the searches that led to them | the page URL |
+| Browser extension | page text read for 20 s on any site except the never-capture list | the page URL and date |
 
 ## Choosing folders
 

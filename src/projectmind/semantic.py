@@ -22,6 +22,7 @@ from __future__ import annotations
 import time
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol
 from uuid import UUID
 
@@ -50,10 +51,14 @@ class Encoder(Protocol):
 class FastEmbedEncoder:
     """The default: a small ONNX sentence model that runs on a CPU."""
 
-    def __init__(self, model_name: str = MODEL) -> None:
+    def __init__(self, model_name: str = MODEL, cache_dir: Path | None = None) -> None:
         from fastembed import TextEmbedding
 
-        self._model = TextEmbedding(model_name=model_name)
+        # Under the ProjectMind home, not fastembed's default in the temp folder, which
+        # disk cleanup may empty: the model must still be there after a restart.
+        cache = cache_dir or model_cache()
+        cache.mkdir(parents=True, exist_ok=True)
+        self._model = TextEmbedding(model_name=model_name, cache_dir=str(cache))
 
     def embed(self, texts: Sequence[str]) -> Any:
         import numpy as np
@@ -66,6 +71,13 @@ class FastEmbedEncoder:
 
         vector = np.array(next(iter(self._model.query_embed([text]))), dtype="float32")
         return _unit(vector[None, :])[0]
+
+
+def model_cache() -> Path:
+    """Where the embedding model is kept."""
+    from projectmind.config import get_settings
+
+    return get_settings().home / "models"
 
 
 def _unit(vectors: Any) -> Any:

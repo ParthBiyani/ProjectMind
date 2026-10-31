@@ -11,6 +11,7 @@ from projectmind.capture import (
     MAX_TEXT_CHARS,
     TABS_URI,
     handle_config,
+    handle_deny,
     handle_page,
     handle_tabs,
 )
@@ -63,15 +64,22 @@ class TestPages:
             "utm" not in doc.uri and "#" not in doc.uri for doc in memory.store.list_documents()
         )
 
-    def test_a_page_on_a_domain_that_is_not_allowed_is_refused(self, memory: MemoryService) -> None:
-        result = handle_page(memory, page(url="https://bank.example.com/account"))
+    def test_a_page_on_a_never_capture_site_is_refused(self, memory: MemoryService) -> None:
+        result = handle_page(memory, page(url="https://kite.zerodha.com/dashboard"))
         assert result["stored"] is False
-        assert "allow-list" in str(result["reason"])
+        assert "never-capture" in str(result["reason"])
         assert memory.store.count_documents() == 0
 
-    def test_explicit_remember_overrides_the_allow_list(self, memory: MemoryService) -> None:
-        result = handle_page(memory, page(url="https://blog.example.org/post", explicit=True))
-        assert result["stored"] is True
+    def test_any_other_site_is_read(self, memory: MemoryService) -> None:
+        assert handle_page(memory, page(url="https://blog.example.org/post"))["stored"] is True
+
+    def test_remember_does_not_override_the_list(self, memory: MemoryService) -> None:
+        result = handle_page(memory, page(url="https://fyers.in/orders", explicit=True))
+        assert result["stored"] is False
+
+    def test_pages_on_this_machine_are_never_read(self, memory: MemoryService) -> None:
+        for url in ("http://127.0.0.1:47615/ui/", "http://localhost:3000/", "http://192.168.1.4/"):
+            assert handle_page(memory, page(url=url, explicit=True))["stored"] is False
 
     def test_the_deny_list_beats_even_an_explicit_request(self, tmp_path: Path) -> None:
         home = tmp_path / "pm2"
@@ -82,7 +90,7 @@ class TestPages:
         service = MemoryService(store, Settings(home=home, db_url=None))
         result = handle_page(service, page(url="https://blog.example.org/post", explicit=True))
         assert result["stored"] is False
-        assert "denied" in str(result["reason"])
+        assert "never-capture" in str(result["reason"])
 
     def test_nothing_is_stored_while_capture_is_off(self, tmp_path: Path) -> None:
         home = tmp_path / "off"
@@ -165,7 +173,28 @@ class TestConfigEndpoint:
     def test_the_extension_can_ask_what_the_rules_are(self, memory: MemoryService) -> None:
         config = handle_config(memory, {})
         assert config["enabled"] is True
-        assert "docs.python.org" in config["allow"]  # type: ignore[operator]
+        assert "kite.com" in config["deny"]  # type: ignore[operator]
+        assert "allow" not in config
+
+
+class TestDenyEndpoint:
+    def test_adding_a_site_forgets_what_was_read_from_it(self, memory: MemoryService) -> None:
+        assert handle_page(memory, page(url="https://blog.example.org/post"))["stored"] is True
+        result = handle_deny(memory, {"add": "https://www.example.org/anything"})
+        assert result["ok"] is True
+        assert result["forgotten"] == 1
+        assert "example.org" in result["deny"]  # type: ignore[operator]
+        assert memory.store.count_documents() == 0
+        assert handle_page(memory, page(url="https://blog.example.org/post"))["stored"] is False
+
+    def test_removing_a_site_reads_it_again(self, memory: MemoryService) -> None:
+        assert handle_deny(memory, {"remove": "linkedin.com"})["ok"] is True
+        assert "linkedin.com" not in handle_config(memory, {})["deny"]  # type: ignore[operator]
+
+    def test_nonsense_is_refused(self, memory: MemoryService) -> None:
+        assert handle_deny(memory, {"add": "not a site"})["ok"] is False
+        assert handle_deny(memory, {"remove": "never-listed.org"})["ok"] is False
+        assert handle_deny(memory, {})["ok"] is False
 
 
 class TestOverHttp:
