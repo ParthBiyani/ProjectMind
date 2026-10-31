@@ -7,6 +7,9 @@ loosely and [Semantic Versioning](https://semver.org/spec/v2.0.0.html) strictly.
 
 ### Changed
 
+- **Documentation consolidated.** The `docs/` pages, `extension/README.md` and
+  `eval/README.md` are removed; the README is self-contained (quickstart, how it works,
+  web UI, extension install, privacy, configuration, commands).
 - **The browser reads every site except a never-capture list**, instead of only an
   allow-list. The list starts with banking, brokers (Kite/Zerodha, Fyers and others),
   payments, mail, chat, social media, sign-in pages, password managers, government
@@ -41,20 +44,20 @@ Closing the measured gaps, and making the system something you can watch work.
   System. `projectmind ui --demo` serves a fictional, fully indexed workspace on a free
   port so a demo never shows personal data; `--no-browser` prints the URL. The token
   reaches the page in the URL fragment and API calls require it; strict
-  Content-Security-Policy, no external requests. See [docs/web-ui.md](docs/web-ui.md).
+  Content-Security-Policy, no external requests. See docs/web-ui.md.
 - **Semantic search (optional, off by default).** Questions can be matched to
   passages by meaning as well as by words (`pip install 'projectmind[semantic]'`,
   `projectmind semantic enable`, `projectmind semantic index`). Vectors are stored
   per model (migration 005, SQLite and Postgres), embedded in the background after
   each sync, and held in memory by the daemon. Automatic injection keeps a strict,
   calibrated bar (cosine 0.78, near the best match, sharing a distinctive word). See
-  [docs/semantic.md](docs/semantic.md).
+  docs/semantic.md.
 - **`search_sources`** MCP tool and a `sources search` that find passages by words and
   by meaning, each result labelled with how it was found.
 - `eval real --semantic`, and a `semantic` check in `doctor`.
 - Documentation describing the current system end to end:
-  [how it works](docs/how-it-works.md), [scaling to a million users](docs/scaling.md),
-  [web UI](docs/web-ui.md); architecture, evaluation, roadmap, integration, sources,
+  how it works, scaling to a million users,
+  web UI; architecture, evaluation, roadmap, integration, sources,
   privacy and the README brought up to date.
 
 ### Changed
@@ -120,7 +123,7 @@ under Fixed was found by running it against real repositories.
   **`projectmind demo`**, a guided tour that is also a regression test.
 - **`doctor`** now verifies hooks and MCP registration and runs the hook the way
   the agent would.
-- Documentation: [sources](docs/sources.md), [privacy](docs/privacy.md), updated
+- Documentation: sources, privacy, updated
   architecture, integration, evaluation and roadmap.
 
 ### Fixed
@@ -131,7 +134,7 @@ under Fixed was found by running it against real repositories.
   non-ASCII input. It now reads and writes UTF-8 and replies in ASCII-safe JSON.
 - The service never passed its clock to retrieval, so the evaluation drifted with
   the wall clock and its recorded figures cannot be reproduced. The set now pins
-  `as_of`. See [evaluation.md](docs/evaluation.md#correction-to-the-phase-4-figures-v020).
+  `as_of`. See evaluation.md.
 - Records no longer carry invented reasons ("adopted while working on llm, llm");
   `Co-Authored-By` trailers are not read as rationale; entity lists are unique and
   path matching uses whole components.
@@ -224,14 +227,14 @@ The reflection prefilter discards 99.1% of statement-record pairs.
 
 - **`false_injection_rate` misses its target at 0.174.** Not rounded away. The
   threshold sweep and the one trade that deliberately made the number worse are
-  in [docs/evaluation.md](docs/evaluation.md#phase-4-results-including-what-was-missed).
+  in docs/evaluation.md.
 - **Four ranking constants were fitted on the eval set**, which therefore no
   longer measures them independently. A second labelled set is the fix.
 - **Proposal acceptance rate is unmeasured.** It needs a human working a queue
   of real proposals; the corpus has not drifted enough to produce one outside a
   constructed test.
 - **Phase 6 is unbuilt** by design — see
-  [docs/phase-6-capture.md](docs/phase-6-capture.md).
+  docs/phase-6-capture.md.
 
 ### Fixed along the way
 
