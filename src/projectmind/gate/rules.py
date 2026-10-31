@@ -85,6 +85,10 @@ class GateDecision:
         return self.analysis.task_type
 
 
+#: Longer than this, a prompt is treated as pasted material for the history gate.
+LONG_PROMPT_WORDS = 250
+
+
 def decide(
     analysis: PromptAnalysis,
     *,
@@ -116,6 +120,18 @@ def decide(
 
     types = RECORD_TYPES_FOR_TASK.get(analysis.task_type, ())
     boost = settings.cross_project_boost
+
+    # Rule: a very long prompt is a paste (a log, a document, a report), not a
+    # question. It names many things in passing, and matching history records on any
+    # of them serves unrelated records: a 525-word agent report naming seven tools got
+    # five irrelevant ones. The source passages, which need coverage, still answer it.
+    if analysis.word_count > LONG_PROMPT_WORDS:
+        return GateDecision(
+            analysis=analysis,
+            inject_profile=True,
+            inject_episodic=False,
+            reason=f"{analysis.word_count}-word prompt is a paste, not a question",
+        )
 
     # Rule: a named entity is the strongest signal there is something to find.
     if analysis.names_known_entity:

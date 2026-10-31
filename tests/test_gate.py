@@ -322,3 +322,40 @@ class TestExplainIsNotAlwaysTrivial:
     def test_explaining_something_from_your_own_past_is_not(self) -> None:
         analysis = analyse("Explain the autonomous trading platform I called Kairos")
         assert not analysis.is_trivial
+
+
+class TestNotAQuestion:
+    """What arrives through the prompt hook is not always something a person asked."""
+
+    @pytest.mark.parametrize(
+        "prompt",
+        [
+            "<task-notification>\n<task-id>a1</task-id>\n<status>completed</status>",
+            "<local-command-stdout>Set model to opus</local-command-stdout>",
+            "<command-name>/model</command-name>",
+            "<system-reminder>The date has changed.</system-reminder>",
+        ],
+    )
+    def test_a_harness_message_gets_nothing(self, prompt: str) -> None:
+        decision = decide(analyse(prompt), settings=SETTINGS)
+        assert decision.skips_everything
+        assert "automated" in decision.reason
+
+    def test_a_question_that_mentions_a_tag_is_still_a_question(self) -> None:
+        analysis = analyse("Why does the <task-notification> tag break my parser?")
+        assert not analysis.is_trivial
+
+    def test_a_long_paste_does_not_search_history_records(self, vocabulary: list[str]) -> None:
+        named = " ".join(vocabulary[:8])
+        paste = f"Here is the report. {named} " + "and then the next step ran " * 60
+        decision = decide(analyse(paste, vocabulary), settings=SETTINGS)
+        assert decision.inject_episodic is False
+        assert decision.inject_profile is True
+        assert "paste" in decision.reason
+
+    def test_a_long_question_under_the_limit_still_can(self, vocabulary: list[str]) -> None:
+        named = vocabulary[0]
+        decision = decide(
+            analyse(f"How did I configure {named} last time? " * 10, vocabulary), settings=SETTINGS
+        )
+        assert decision.inject_episodic is True
