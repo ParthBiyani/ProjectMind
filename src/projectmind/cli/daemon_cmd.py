@@ -90,7 +90,8 @@ def serve(
         "background sync "
         + (f"every {daemon.sync_seconds / 60:g} min" if daemon.sync_seconds else "off")
     )
-    sys.stdout.flush()
+    if sys.stdout is not None:  # None under pythonw, which is how logon starts it
+        sys.stdout.flush()
     try:
         daemon.wait()
     finally:

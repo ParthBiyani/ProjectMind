@@ -60,7 +60,8 @@ def _show(url: str, browser: bool) -> None:
     else:
         note("open this address (it carries the access token; do not share it):")
         print(url)
-    sys.stdout.flush()
+    if sys.stdout is not None:  # None under pythonw, which is how logon starts it
+        sys.stdout.flush()
 
 
 def _serve_until_stopped(daemon: object, url: str, browser: bool) -> None:

@@ -427,3 +427,36 @@ class TestDashboardApi:
 def test_a_second_daemon_cannot_share_the_port(running: Daemon) -> None:
     with pytest.raises(OSError):
         Daemon(running.settings, port=running.port, sync_minutes=0, announce=False)
+
+
+def test_the_daemon_runs_without_a_console(tmp_path: Path) -> None:
+    """Started at logon by pythonw, the daemon has no stdout or stderr at all."""
+    home = tmp_path / "pm"
+    home.mkdir()
+    script = (
+        "import sys; sys.stdout = None; sys.stderr = None\n"
+        "from projectmind.cli import main\n"
+        "sys.argv = ['projectmind', 'serve', '--port', '0', '--sync-minutes', '0']\n"
+        "main()\n"
+    )
+    env = {**os.environ, "PROJECTMIND_HOME": str(home), "PROJECTMIND_DB_URL": ""}
+    process = subprocess.Popen([sys.executable, "-c", script], env=env)
+    try:
+        deadline = time.monotonic() + 60
+        info = None
+        while time.monotonic() < deadline and process.poll() is None:
+            info = hook_entry.daemon_info(home)
+            if info:
+                break
+            time.sleep(0.2)
+        assert process.poll() is None, "the daemon exited"
+        assert info is not None
+        time.sleep(1.0)
+        assert process.poll() is None, "the daemon exited after starting"
+        connection = http.client.HTTPConnection("127.0.0.1", int(info["port"]), timeout=10)
+        connection.request("GET", "/health")
+        assert connection.getresponse().status == 200
+        connection.close()
+    finally:
+        process.terminate()
+        process.wait(timeout=30)

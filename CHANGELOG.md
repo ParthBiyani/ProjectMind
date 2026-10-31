@@ -51,6 +51,10 @@ Closing the measured gaps, and making the system something you can watch work.
   evaluation moved.
 - The daemon now closes a connection whose request body it did not read (a refused
   request, a GET with a body), instead of parsing the body as the next request.
+- The daemon started at logon exited a moment after starting: the logon launcher runs it
+  with `pythonw`, which has no console, and `serve` flushed a standard output that does
+  not exist. It also left a stale `daemon.json`. Found by installing it for real; a test
+  now runs `serve` without a console.
 - On Windows a second process could bind the daemon's port while it was listening
   (`SO_REUSEADDR`); the daemon now binds exclusively, and closes its store if binding
   fails.
