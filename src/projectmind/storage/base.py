@@ -581,6 +581,10 @@ class Store(ABC):
     def count_documents(self, root: str | None = None) -> int: ...
 
     @abstractmethod
+    def knowledge_summary(self) -> list[tuple[str, str, int, int]]:
+        """(source type, project, documents, passages) for everything indexed."""
+
+    @abstractmethod
     def list_documents(
         self, *, limit: int = 100, source_type: str | None = None
     ) -> list[DocumentRecord]: ...

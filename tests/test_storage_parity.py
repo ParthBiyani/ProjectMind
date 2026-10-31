@@ -730,3 +730,19 @@ class TestChunkVectors:
         store.put_chunk_vectors("m", [(chunk.id, b"\x01\x02") for chunk in chunks])
         store.delete_chunks([chunks[0].id])
         assert store.count_chunk_vectors("m") == 2
+
+
+class TestKnowledgeSummary:
+    def test_counts_documents_and_passages_by_type_and_project(self, store: Store) -> None:
+        first = make_document("D:/p/kairos/a.md")
+        second = make_document("D:/p/kairos/b.md")
+        other = make_document("D:/p/other/c.md", project_key="other", source_type="git")
+        store.replace_document(first, make_chunks(first, "one", "two"))
+        store.replace_document(second, make_chunks(second, "three"))
+        store.replace_document(other, make_chunks(other, "four"))
+        summary = {
+            (kind, project): (docs, chunks)
+            for kind, project, docs, chunks in store.knowledge_summary()
+        }
+        assert summary[("doc", "kairos")] == (2, 3)
+        assert summary[("git", "other")] == (1, 1)
