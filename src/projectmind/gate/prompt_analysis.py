@@ -73,6 +73,14 @@ EXPLAIN_PATTERNS = (
     r"\bwhat does (?:this|the) \w+ do\b",
 )
 
+#: Messages the agent's harness sends through the prompt hook on its own: a finished
+#: background task, the output of a slash command. Nobody typed them, and they are full
+#: of tool names that would otherwise be matched as if they were a question.
+AUTOMATED = re.compile(
+    r"^<(?:task-notification|system-reminder|local-command-[a-z]+|command-(?:name|message|args)"
+    r"|bash-(?:input|stdout|stderr)|user-prompt-submit-hook)>"
+)
+
 # --------------------------------------------------------------------------- #
 # Task type
 # --------------------------------------------------------------------------- #
@@ -312,6 +320,9 @@ def _triviality(
     """Why this prompt is trivial, or an empty string when it is not."""
     if not text:
         return "empty prompt"
+
+    if AUTOMATED.match(text):
+        return "an automated message, not a prompt"
 
     if _matches(STRICTLY_MECHANICAL, text):
         return "mechanical edit"

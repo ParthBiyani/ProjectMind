@@ -68,7 +68,7 @@ while holding false injection under 0.10, and those two pull in opposite
 directions. That tension is the whole engineering problem, and the floor makes
 it visible from day one.
 
-## Phase 4 results, including what was missed
+## Phase 4 results, including what was missed (historical)
 
 | Metric | Target | Phase 2 | Phase 4 | |
 |---|---|---|---|---|
@@ -143,6 +143,28 @@ reproducible to the digit. Measured with the hashing embedder:
 
 The ratchet in `tests/test_retrieval.py` is set to 0.21 so it cannot get worse.
 
+### Current (v0.3.0, pinned clock)
+
+After the v0.3 retrieval fixes (the last exploratory branches of the history gate were
+removed, so a prompt that names nothing never searches history records; a named project is served at lower coverage; "explain the ..." is trivial
+only before a code noun), the same pinned run measures:
+
+| Metric | Target | v0.2.0 | **v0.3.0** | |
+|---|---|---|---|---|
+| `gate_precision` | >= 0.80 | 1.000 | **1.000** | met |
+| `precision_at_k` | >= 0.70 | 0.742 | **0.750** | met |
+| `cross_project_hit_rate` | >= 0.30 | 0.325 | **0.325** | met |
+| `false_injection_rate` | <= 0.10 | 0.208 | **0.174** | **missed** |
+| `ndcg@5` / `mrr` | | | 0.645 / 0.795 | |
+| forbidden sources served | 0 | 0 | **0** | met |
+| mean / max tokens | <= 2300 | 405 / 667 | 387 / 674 | met |
+| p95 latency | | 13.6 ms | 12.6 ms | |
+
+The coincidence with the irreproducible Phase 4 figure of 0.174 is only that: this one is
+pinned and reproducible to the digit. False injection is counted per record, and the
+remaining 4 unlabelled records out of 23 served all come from queries that expect a record
+and received one correct record and one extra.
+
 How it got from 0.323 to 0.208 (the first run of the combined front door scored
 0.375): every unlabelled item came from the history-record path, none from the
 new passage path, and nearly all from vague prompts that name nothing ("what
@@ -156,7 +178,7 @@ is 40 queries, so this is a tuned result on a small set, and a lower setting
 (0.45 on the minimum score) was declined because it left the cross-project rate
 exactly on its limit.
 
-## v0.2.0: measured on real material
+## Measured on real material (v0.2.0, semantic results v0.3.0)
 
 The synthetic set cannot tell you whether retrieval works on what *you* have.
 `projectmind eval real` scores the front door against questions about your own
@@ -183,6 +205,18 @@ topics that appear nowhere in the material.
 | Served precision (served items that are expected sources) | 0.707 |
 | Mean tokens per bundle | 535 |
 | p95 latency (in process, hashing embedder) | 80 ms |
+
+With semantic search (v0.3.0, measured 2026-10-31 on a copy of the same knowledge base
+with all 27,403 passages embedded):
+
+| | Hit rate | Silence | Served precision | p95 |
+|---|---|---|---|---|
+| Lexical only | 0.812 | 1.000 | 0.707 | 81 ms |
+| **Semantic, default bar (0.78)** | **0.844** | **1.000** | 0.714 | 93 ms |
+| Explicit search, words only | 28 of 32 found | | | |
+| **Explicit search, words and meaning** | **30 of 32 found** | | | |
+
+The threshold sweep that chose 0.78 is in [semantic.md](semantic.md#why-the-automatic-bar-is-high).
 
 How to read these honestly:
 
@@ -226,6 +260,7 @@ projectmind eval run --system live --save eval/baselines/phase-4.json
 projectmind eval compare eval/baselines/phase-0-null.json eval/baselines/phase-4.json
 projectmind eval real                                   # your own questions, your own data
 projectmind eval real --min-hit 0.8 --max-false-injection 0.1   # exit non-zero on regression
+projectmind eval real --semantic                        # the same, with meaning matches (needs `semantic index`)
 ```
 
 ## What this set does not measure

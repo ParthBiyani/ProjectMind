@@ -1,3 +1,5 @@
+> **Historical design document** (v0.1 planning). The current system is described in [how-it-works.md](how-it-works.md) and [architecture.md](architecture.md).
+
 # ProjectMind — PRD v2
 
 **Status:** Pre-build, architecture locked

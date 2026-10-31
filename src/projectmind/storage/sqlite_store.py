@@ -604,6 +604,17 @@ class SqliteStore(Store):
             ).fetchone()
         return int(row["n"])
 
+    def knowledge_summary(self) -> list[tuple[str, str, int, int]]:
+        rows = self._conn.execute(
+            "SELECT source_type, project_key, count(*) AS documents, "
+            "coalesce(sum(chunk_count), 0) AS passages FROM documents "
+            "GROUP BY source_type, project_key ORDER BY passages DESC"
+        ).fetchall()
+        return [
+            (row["source_type"], row["project_key"], int(row["documents"]), int(row["passages"]))
+            for row in rows
+        ]
+
     def list_documents(
         self, *, limit: int = 100, source_type: str | None = None
     ) -> list[DocumentRecord]:

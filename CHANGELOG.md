@@ -3,22 +3,63 @@
 Notable changes, newest first. Follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 loosely and [Semantic Versioning](https://semver.org/spec/v2.0.0.html) strictly.
 
-## [Unreleased]
+## [0.3.0] — 2026-10-31
+
+Closing the measured gaps, and making the system something you can watch work.
 
 ### Added
 
+- **Web UI.** `projectmind ui` opens a dark, dependency-free dashboard served by the
+  daemon at `http://127.0.0.1:<port>/ui/`: Ask (the full answer with the trace of every
+  candidate kept or cut, and feedback), Search (by words and by meaning), History,
+  Knowledge (with Sync now), Profile (approve or reject in place), Evaluation and
+  System. `projectmind ui --demo` serves a fictional, fully indexed workspace on a free
+  port so a demo never shows personal data; `--no-browser` prints the URL. The token
+  reaches the page in the URL fragment and API calls require it; strict
+  Content-Security-Policy, no external requests. See [docs/web-ui.md](docs/web-ui.md).
 - **Semantic search (optional, off by default).** Questions can be matched to
   passages by meaning as well as by words (`pip install 'projectmind[semantic]'`,
   `projectmind semantic enable`, `projectmind semantic index`). Vectors are stored
   per model (migration 005, SQLite and Postgres), embedded in the background after
-  each sync, and held in memory by the daemon. See [docs/semantic.md](docs/semantic.md).
+  each sync, and held in memory by the daemon. Automatic injection keeps a strict,
+  calibrated bar (cosine 0.78, near the best match, sharing a distinctive word). See
+  [docs/semantic.md](docs/semantic.md).
 - **`search_sources`** MCP tool and a `sources search` that find passages by words and
   by meaning, each result labelled with how it was found.
 - `eval real --semantic`, and a `semantic` check in `doctor`.
+- Documentation describing the current system end to end:
+  [how it works](docs/how-it-works.md), [scaling to a million users](docs/scaling.md),
+  [web UI](docs/web-ui.md); architecture, evaluation, roadmap, integration, sources,
+  privacy and the README brought up to date.
 
-Measured on the author's material: automatic injection rises from 0.812 to 0.844 hit
-rate with silence held at 1.000; the explicit search finds 30 of 32 answerable
-questions against 28 of 32 by words alone.
+### Changed
+
+- A prompt that names nothing never searches history records: the last exploratory
+  branches of the history gate were removed (synthetic false injection 0.208 → 0.174,
+  pinned clock).
+- A question that names a project is served from that project at 35% coverage instead
+  of 60%, and short "explain the ..." prompts are trivial only before a code noun.
+  Reworded real questions: 5 of 12 → 8 of 12, with silence unchanged.
+
+### Fixed
+
+- The hook treated messages the agent's harness sends on its own (a finished background
+  task, a slash command's output) as questions; a 525-word task report naming seven
+  tools was served five unrelated history records in real use. Such messages are now
+  skipped, and a prompt over 250 words (a paste, not a question) no longer searches
+  history records; source passages, which need coverage, still answer it. Neither
+  evaluation moved.
+- The daemon now closes a connection whose request body it did not read (a refused
+  request, a GET with a body), instead of parsing the body as the next request.
+- On Windows a second process could bind the daemon's port while it was listening
+  (`SO_REUSEADDR`); the daemon now binds exclusively, and closes its store if binding
+  fails.
+
+### Measured
+
+On the author's material (42 questions, 27,403 passages): automatic injection hit rate
+0.812 → 0.844 with silence held at 1.000; the explicit search finds 30 of 32 answerable
+questions against 28 by words alone.
 
 ## [0.2.0] — 2026-10-30
 
@@ -195,4 +236,6 @@ each one changed a design decision:
   cross-project memory layer exists to answer — classified as `implement` and
   therefore returned nothing without a named entity.
 
+[0.3.0]: https://github.com/ParthBiyani/ProjectMind/releases/tag/v0.3.0
+[0.2.0]: https://github.com/ParthBiyani/ProjectMind/releases/tag/v0.2.0
 [0.1.0]: https://github.com/ParthBiyani/ProjectMind/releases/tag/v0.1.0

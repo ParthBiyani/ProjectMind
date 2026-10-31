@@ -40,6 +40,10 @@ your own project is found by what it says rather than by a keyword list.
                         |                      source passages (open vocabulary, cited)
                         |                         rarity-weighted coverage, most
                         |                         specific term required, deduplicated
+                        |                                    |
+                        |                      optional meaning matches (daemon only):
+                        |                         cosine >= 0.78, near the best, shares a
+                        |                         distinctive word
                         v                                    v
                         +----------------- budget ----------+
                                  hard caps: 800 / 1500 / 1200, 2300 total
@@ -75,7 +79,8 @@ as one, with the reason, because "did not inject" is a measurable outcome.
 src/projectmind/
   config.py        settings: environment, then ~/.projectmind/.env, never a project's .env
   models.py        domain types shared by every layer
-  service.py       the front door: get_context, search, history logging
+  service.py       the front door: get_context, search, search_sources, history logging
+  semantic.py      optional meaning search: stored vectors, in-memory matrix, nearest passages
   storage/         store protocol, sqlite and postgres backends, embeddings, migrations
   profile/         statement repository and the lifecycle state machine
   fingerprint/     manifest parsing, directory scan, cache, similarity
@@ -86,7 +91,8 @@ src/projectmind/
   reflection/      contradiction detection, TTL scan, review queue
   evaluation/      the synthetic set and the real-material scorer
   capture.py       what the browser extension may send, and what is kept
-  daemon.py        local server: warm hook answers, scheduler, capture endpoint
+  daemon.py        local server: warm hook answers, scheduler, capture endpoint, web UI
+  web/             the dashboard (static HTML/CSS/JS) and its JSON API
   hook_entry.py    standard-library-only hook client with an in-process fallback
   sync.py          one incremental pass over every source
   demo.py          the guided tour on a fictional workspace
@@ -94,6 +100,20 @@ src/projectmind/
   cli/             operator commands
 extension/         the Edge and Chrome extension (Manifest V3, plain JavaScript)
 ```
+
+## Surfaces
+
+| Surface | For | Notes |
+|---|---|---|
+| `UserPromptSubmit` hook | automatic injection | standard-library thin client; asks the daemon, falls back in process |
+| MCP server | deliberate asks | `get_context`, `search_sources`, `search_memory`, `memory_feedback`, `memory_stats` |
+| CLI | operating it | `projectmind ...`; see the README |
+| Web UI | seeing and demoing it | `projectmind ui`, `projectmind ui --demo`; see [web-ui.md](web-ui.md) |
+| Browser extension | capturing reading | Manifest V3, allow-listed hosts only |
+
+Every surface calls the same `MemoryService`, so behaviour does not depend on which one is
+used. Semantic search runs only where its vectors are loaded (the daemon, the MCP server,
+explicit CLI search); the in-process hook fallback is lexical.
 
 ## Design rules
 
@@ -121,3 +141,17 @@ Storage sits behind a single protocol with two implementations. SQLite is the
 default so the server is available without a daemon; Postgres with pgvector is
 selected by setting a `postgresql://` URL and is exercised by the same parity
 test suite. No query is written against a backend directly.
+
+Schema changes are numbered migrations applied in order on both backends:
+
+| Migration | Adds |
+|---|---|
+| 001 | profile statements, projects, history records, review queue, bundle log |
+| 002 | interaction history in full (prompt, trace, served text, delivery) |
+| 003 | the knowledge base: documents, chunks and their full-text index (FTS5 / tsvector) |
+| 004 | which passages each bundle served |
+| 005 | `chunk_vectors`: float16 passage embeddings keyed by chunk and model |
+
+For the reasoning behind these choices in plain language see
+[how-it-works.md](how-it-works.md); for how the design would serve many users see
+[scaling.md](scaling.md).

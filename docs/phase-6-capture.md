@@ -1,3 +1,5 @@
+> **Historical design document.** What was actually built is in [sources.md](sources.md) and [privacy.md](privacy.md).
+
 # Phase 6 — browser and AI chat capture
 
 **Status: superseded in v0.2.0.** Browser history and Claude Code sessions are now

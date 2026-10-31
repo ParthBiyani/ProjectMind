@@ -97,7 +97,7 @@ than just this tool:
 
 | | |
 |---|---|
-| Added latency | about 150 ms through the daemon, about 400 ms in process (measured; interpreter start-up alone is about 70 ms) |
+| Added latency | about 150 ms through the daemon, about 160 ms warm in process and up to a few seconds on a cold first run (measured; interpreter start-up alone is about 70 ms) |
 | Added tokens | 0 when nothing is served; at most 2300, capped server-side |
 | Network calls | none on the retrieval path |
 
@@ -125,9 +125,24 @@ at anything new. Deliberate exploration has to be able to run clean.
   [privacy.md](privacy.md).
 - Nothing leaves the machine on the retrieval path. There is no network call in
   `get_context` at all.
-- Repository content reaches an external model only during ingestion, only if
-  `ANTHROPIC_API_KEY` is set, and never for repositories listed in
-  `PROJECTMIND_EXCLUDED_REPOS`.
+- No content reaches an external model at all: optional model-written notes are not
+  implemented, and semantic search runs a local model on the CPU.
+
+## MCP tools
+
+| Tool | When the agent should use it |
+|---|---|
+| `get_context(prompt, project_path)` | The front door, when no hook block is present. |
+| `search_sources(query, project_path, limit)` | The injected context is missing or off-topic and the user's own files may still answer. Finds passages by words and, when semantic search is on, by meaning; each result says how it was found. |
+| `search_memory(query, project_path, limit)` | The user asks what they did before (history records). |
+| `memory_feedback(bundle_id, useful, note)` | Once per injected block, near the end of the task. |
+| `memory_stats(days)` | Usage figures as JSON. |
+
+## Semantic search and the hook
+
+If semantic search is on ([semantic.md](semantic.md)), meaning matches are added only
+when the hook is answered by the daemon, which holds the vectors in memory. The
+in-process fallback stays lexical so a prompt never waits for a model to load.
 
 ## Other clients
 

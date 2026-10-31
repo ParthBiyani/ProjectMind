@@ -14,6 +14,7 @@ criterion is met.
 | 5 | Reflection loop + monthly review | ≥ 60% proposal acceptance, review under 5 minutes | **complete, unmeasured** |
 | 6 | Browser and AI chat capture | measurable improvement on the Phase 0 eval, or cut | **built in v0.2.0**, differently from the design (below) |
 | v0.2 | Real-world hardening and a grounded knowledge base | works on real material, measured | **complete**; see below |
+| v0.3 | Semantic search, web UI, documentation | closes measured gaps without new false injection; demoable | **complete**; see below |
 
 ## Why this order
 
@@ -38,7 +39,9 @@ one, and the phase is cut if it does not move the eval.
 | 0 (null floor) | 2026-07-04 | 0.250 | 0.000 | 0.000 | 0.000 |
 | 0 (oracle ceiling) | 2026-07-04 | 1.000 | 1.000 | 0.375 | 0.000 |
 | 2 (gate, no retriever) | 2026-07-12 | **1.000** | 0.000 | 0.000 | 0.000 |
-| 4 (hybrid retrieval) | 2026-07-15 | 1.000 | **0.750** | **0.300** | 0.174 |
+| 4 (hybrid retrieval) | 2026-07-15 | 1.000 | **0.750** | **0.300** | 0.174 (irreproducible) |
+| v0.2.0 (pinned clock) | 2026-10-30 | 1.000 | 0.742 | 0.325 | 0.208 |
+| v0.3.0 (pinned clock) | 2026-10-31 | 1.000 | **0.750** | **0.325** | **0.174** |
 
 Phase 1 exit, measured on the seeded profile: the slice stays at 436–481 tokens
 against the 800 cap across Flutter, ML and unknown-stack fingerprints, and 15
@@ -89,8 +92,7 @@ report. Claiming 60% now would be inventing it.
 
 - **A second eval set.** Four ranking constants were fitted on the existing 40
   queries, so that set no longer measures them independently.
-- **Phase 6 is unbuilt.** Browser and chat capture remain designed and
-  documented only; see [phase-6-capture.md](phase-6-capture.md).
+- **Phase 6 was built differently in v0.2.0**; see below.
 
 ## v0.2.0: what changed and why
 
@@ -127,7 +129,30 @@ repeated reading into profile proposals ("researched X six times, never adopted
 it") remains unbuilt, for the reason the design gave: it needs a conservative
 extractor and its own evaluation.
 
-## Known gaps after v0.2.0
+## v0.3.0: what changed and why
+
+1. **Retrieval fixes measured on real material.** The last exploratory branches of the
+   history gate were removed, so a prompt that names nothing never searches history
+   records (synthetic false injection 0.208 → 0.174);
+   a named project is served at 35% coverage; "explain the ..." is trivial only before
+   a code noun (reworded real questions 5/12 → 8/12).
+2. **Optional semantic search** with a calibrated automatic bar and a generous,
+   labelled explicit search (`search_sources`): real hit rate 0.812 → 0.844 with
+   silence held at 1.000; explicit search 30/32. See [semantic.md](semantic.md).
+3. **A web UI** with a demo mode, so the system can be shown live without personal data.
+   See [web-ui.md](web-ui.md).
+4. **Documentation** describing the current system end to end:
+   [how-it-works.md](how-it-works.md), [scaling.md](scaling.md).
+
+## Next
+
+- A learned reranker over labelled interaction history (features: coverage, anchors,
+  cosine, project match, source type), replacing hand-set floors where data allows.
+- A blind evaluation set, labelled before looking at what the retriever serves.
+- Per-user calibration of the coverage floor and semantic threshold from feedback.
+- Closing the synthetic false-injection gap on the history-record path.
+
+## Known gaps after v0.3.0
 
 - **Vocabulary mismatch is mostly still silence.** Retrieval is lexical with
   stemming. Opt-in [semantic search](semantic.md) recovers one of the four reworded
@@ -136,9 +161,12 @@ extractor and its own evaluation.
   automatic bar stays high. A learned reranker over a labelled history is the next
   step, and needs real usage to train on.
 - **The history-record path still has a closed-vocabulary gate** and misses its
-  false-injection target (0.208 against 0.10). Commits are now also reachable through
+  false-injection target on the synthetic set (0.174 against 0.10; 4 extra records out
+  of 23). Commits are now also reachable through
   the open-vocabulary path, which makes this less important in practice, not
   non-existent.
+- **The semantic threshold is calibrated on ten absent-topic questions.** It is off by
+  default and every meaning match is recorded in the trace.
 - **Optional notes from a language model** (`ANTHROPIC_API_KEY`) are described in the
   configuration but not implemented. Everything else works without a key.
 - **The extension has not been loaded into a browser in CI.** Its logic and its

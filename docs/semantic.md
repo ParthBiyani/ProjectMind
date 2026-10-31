@@ -20,6 +20,17 @@ projectmind daemon stop                 # then start it again (projectmind serve
 After that, `sync` embeds new passages in the background at low priority, and the
 daemon reloads its matrix when it finishes.
 
+## Should you turn it on?
+
+**Yes, for daily use, once the daemon starts at logon** (`projectmind schedule install`).
+At the default bar it measured zero false injections on the absent-topic questions and a
+small gain in automatic answers, and the explicit search (MCP `search_sources`, `sources
+search`, the web UI's Search view) gains the most: 30 of 32 answerable questions found
+against 28 by words alone. The costs are one-time: a ~130 MB model download and about 25
+minutes of background CPU to embed ~27,000 passages (~19 per second on a laptop CPU);
+afterwards only new passages are embedded after each sync. Leave it off on a machine
+without the daemon, since the hook's in-process path does not use it.
+
 ## How it works
 
 - Every passage (heading and text, first 1,200 characters) is embedded once with
@@ -43,8 +54,8 @@ answers only if all of these hold:
 4. the usual rules: not already served, one or two passages per document, no
    near-duplicates.
 
-**Explicit search is generous and says so.** `search_sources` (MCP) and
-`projectmind sources search` show meaning matches down to similarity 0.60, each
+**Explicit search is generous and says so.** `search_sources` (MCP),
+`projectmind sources search` and the web UI's Search view show meaning matches down to similarity 0.60, each
 labelled `by meaning, similarity 0.74` or `by words`. Someone asked, so a close
 neighbour is welcome, and the label tells the reader not to treat it as verified.
 

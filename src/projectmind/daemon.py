@@ -25,6 +25,8 @@ import hmac
 import json
 import os
 import secrets
+import socket
+import sys
 import threading
 from collections.abc import Callable
 from datetime import UTC, datetime
@@ -39,6 +41,7 @@ from projectmind.hook_entry import BUNDLE_HEADER, DAEMON_FILE, prepare_reply, re
 from projectmind.logging import get_logger
 from projectmind.service import MemoryService
 from projectmind.storage import open_store
+from projectmind.web.api import UI_HEADERS, WebApi, static_file
 
 if TYPE_CHECKING:  # pragma: no cover
     from projectmind.semantic import SemanticIndex
@@ -71,6 +74,22 @@ def load_token(home: Path) -> str:
     return token
 
 
+class _Server(ThreadingHTTPServer):
+    """Binds its port exclusively.
+
+    `HTTPServer` sets SO_REUSEADDR, which on Windows lets a second process bind a port
+    that is already in use: two daemons, or another program, answering on the same
+    address. Exclusive binding makes the second bind fail instead.
+    """
+
+    allow_reuse_address = sys.platform != "win32"
+
+    def server_bind(self) -> None:
+        if sys.platform == "win32":
+            self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+        super().server_bind()
+
+
 class Daemon:
     def __init__(
         self,
@@ -79,6 +98,9 @@ class Daemon:
         port: int | None = None,
         sync_minutes: float | None = None,
         first_sync_delay: float = FIRST_SYNC_DELAY_SECONDS,
+        memory: MemoryService | None = None,
+        demo: dict[str, Path] | None = None,
+        announce: bool = True,
     ) -> None:
         self.settings = settings
         self.home = settings.home
@@ -87,20 +109,52 @@ class Daemon:
             sync_minutes if sync_minutes is not None else settings.daemon_sync_minutes
         ) * 60.0
         self.first_sync_delay = first_sync_delay
-        self.memory = MemoryService.open(settings)
+        self.memory = memory or MemoryService.open(settings)
+        self.announces = announce
         self.semantic = self._open_semantic()
         self.lock = threading.Lock()
         self.stop_event = threading.Event()
         self.sync_running = threading.Event()
         self.capture_handlers: dict[str, CaptureHandler] = dict(capture.HANDLERS)
         self.last_sync: dict[str, Any] = {}
-        self.server = ThreadingHTTPServer(
-            ("127.0.0.1", port if port is not None else settings.daemon_port),
-            self._handler(),
-        )
+        try:
+            self.server = _Server(
+                ("127.0.0.1", port if port is not None else settings.daemon_port),
+                self._handler(),
+            )
+        except OSError:
+            if memory is None:  # ours to close; a caller's service stays theirs
+                self.memory.close()
+            raise
         self.server.daemon_threads = True
         self.port = int(self.server.server_address[1])
         self._threads: list[threading.Thread] = []
+        self.web = WebApi(
+            self.memory,
+            status=self._status,
+            start_sync=None if demo is not None else self._start_sync,
+            demo=demo,
+        )
+
+    def _status(self) -> dict[str, Any]:
+        return {
+            "pid": os.getpid(),
+            "port": self.port,
+            "syncing": self.sync_running.is_set(),
+            "last_sync": self.last_sync,
+            "sync_minutes": self.sync_seconds / 60.0,
+        }
+
+    def _start_sync(self) -> bool:
+        if self.sync_running.is_set():
+            return False
+        threading.Thread(target=self.run_sync, name="sync-now", daemon=True).start()
+        return True
+
+    @property
+    def ui_url(self) -> str:
+        """The dashboard, with the token in the fragment (which is never sent to a server)."""
+        return f"http://127.0.0.1:{self.port}/ui/#token={self.token}"
 
     # --- semantic search -----------------------------------------------------
     def _open_semantic(self) -> SemanticIndex | None:
@@ -167,13 +221,16 @@ class Daemon:
         self.stop_event.set()
         self.server.shutdown()
         self.server.server_close()
-        with contextlib.suppress(OSError):
-            (self.home / DAEMON_FILE).unlink()
+        if self.announces:
+            with contextlib.suppress(OSError):
+                (self.home / DAEMON_FILE).unlink()
         with self.lock:
             self.memory.close()
         log.info("daemon stopped")
 
     def _announce(self) -> None:
+        if not self.announces:
+            return
         info = {
             "pid": os.getpid(),
             "port": self.port,
@@ -252,11 +309,14 @@ class Daemon:
             def _allowed(self) -> bool:
                 host = (self.headers.get("Host") or "").lower()
                 if host not in {f"127.0.0.1:{daemon.port}", f"localhost:{daemon.port}"}:
+                    self.close_connection = True
                     self._json(403, {"error": "bad host"})
                     return False
                 supplied = self.headers.get("Authorization", "")
                 expected = f"Bearer {daemon.token}"
                 if not hmac.compare_digest(supplied.encode(), expected.encode()):
+                    # The body was not read; closing stops it being parsed as a request.
+                    self.close_connection = True
                     self._json(401, {"error": "unauthorized"})
                     return False
                 return True
@@ -272,15 +332,60 @@ class Daemon:
                 return self.rfile.read(length) if length else b""
 
             # -- routes ----------------------------------------------------
+            def _loopback(self) -> bool:
+                host = (self.headers.get("Host") or "").lower()
+                if host not in {f"127.0.0.1:{daemon.port}", f"localhost:{daemon.port}"}:
+                    self.close_connection = True
+                    self._json(403, {"error": "bad host"})
+                    return False
+                return True
+
+            def _ui(self) -> None:
+                """The dashboard's files. They hold no data, so no token is needed."""
+                if self.path in {"/", "/ui"}:
+                    self._reply(302, headers={"Location": "/ui/"})
+                    return
+                found = static_file(self.path.split("?", 1)[0].removeprefix("/ui/"))
+                if found is None:
+                    self._json(404, {"error": "not found"})
+                    return
+                content, kind = found
+                self.send_response(200)
+                self.send_header("Content-Type", kind)
+                self.send_header("Content-Length", str(len(content)))
+                for key, value in UI_HEADERS.items():
+                    self.send_header(key, value)
+                self.end_headers()
+                self.wfile.write(content)
+
+            def _api(self, method: str, body: bytes) -> None:
+                with daemon.lock:
+                    status, payload = daemon.web.handle(method, self.path, body)
+                self._reply(
+                    status,
+                    json.dumps(payload, default=str).encode("utf-8"),
+                    {"Cache-Control": "no-store"},
+                )
+
             def do_GET(self) -> None:
+                if (self.headers.get("Content-Length") or "0") != "0":
+                    self.close_connection = True  # a GET body is never read
                 if self.path == "/health":
-                    host = (self.headers.get("Host") or "").lower()
-                    if host not in {f"127.0.0.1:{daemon.port}", f"localhost:{daemon.port}"}:
-                        self._json(403, {"error": "bad host"})
-                        return
-                    self._json(200, {"ok": True, "version": __version__})
+                    if self._loopback():
+                        self._json(200, {"ok": True, "version": __version__})
+                    return
+                if self.path in {"/", "/ui"} or self.path.startswith("/ui/"):
+                    if self._loopback():
+                        self._ui()
                     return
                 if not self._allowed():
+                    return
+                if self.path.startswith("/api/"):
+                    try:
+                        self._api("GET", b"")
+                    except Exception as exc:
+                        log.warning("request failed", extra={"route": self.path, "error": str(exc)})
+                        self._json(500, {"error": "internal error"})
                     return
                 if self.path == "/status":
                     with daemon.lock:
@@ -322,6 +427,8 @@ class Daemon:
                         threading.Thread(target=daemon.stop, daemon=True).start()
                     elif route.startswith("/capture/"):
                         self._capture(route.removeprefix("/capture/"), body)
+                    elif route.startswith("/api/"):
+                        self._api("POST", body)
                     else:
                         self._json(404, {"error": "not found"})
                 except Exception as exc:  # a bad request must not take the daemon down

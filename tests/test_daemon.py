@@ -300,3 +300,130 @@ class TestHookClient:
 
     def test_a_bundle_id_is_a_uuid_or_nothing(self) -> None:
         assert hook_entry.confirm_with_daemon(uuid4(), True) in {True, False}
+
+
+def api(daemon: Daemon, method: str, path: str, body: object | None = None) -> tuple[int, dict]:
+    status, raw, _ = call(daemon, method, f"/api/{path}", body)
+    return status, json.loads(raw) if raw else {}
+
+
+class TestDashboardFiles:
+    def test_the_page_is_served_without_a_token(self, running: Daemon) -> None:
+        status, body, headers = call(running, "GET", "/ui/", token=False)  # type: ignore[arg-type]
+        assert status == 200
+        assert b"<title>ProjectMind</title>" in body
+        assert headers["Content-Type"].startswith("text/html")
+
+    def test_the_page_forbids_loading_anything_from_elsewhere(self, running: Daemon) -> None:
+        _, _, headers = call(running, "GET", "/ui/app.js", token=False)  # type: ignore[arg-type]
+        policy = headers["Content-Security-Policy"]
+        assert "default-src 'self'" in policy
+        assert "frame-ancestors 'none'" in policy
+        assert headers["Content-Type"].startswith("text/javascript")
+
+    def test_the_root_redirects_to_the_dashboard(self, running: Daemon) -> None:
+        status, _, headers = call(running, "GET", "/", token=False)  # type: ignore[arg-type]
+        assert status == 302
+        assert headers["Location"] == "/ui/"
+
+    @pytest.mark.parametrize(
+        "path", ["/ui/../daemon.py", "/ui/..%2Fapi.py", "/ui/api.py", "/ui/.env"]
+    )
+    def test_nothing_outside_the_static_folder_is_served(self, running: Daemon, path: str) -> None:
+        status, _, _ = call(running, "GET", path, token=False)  # type: ignore[arg-type]
+        assert status == 404
+
+    def test_a_foreign_host_cannot_load_the_page(self, running: Daemon) -> None:
+        status, _, _ = call(running, "GET", "/ui/", token=False, host="evil.example")  # type: ignore[arg-type]
+        assert status == 403
+
+    def test_the_link_carries_the_token_in_the_fragment_only(self, running: Daemon) -> None:
+        assert running.ui_url.startswith(f"http://127.0.0.1:{running.port}/ui/#token=")
+        assert running.token not in running.ui_url.split("#")[0]
+
+
+class TestDashboardApi:
+    def test_every_api_route_needs_the_token(self, running: Daemon) -> None:
+        for method, path in [("GET", "overview"), ("POST", "ask"), ("GET", "history")]:
+            status, _, _ = call(running, method, f"/api/{path}", {}, token="wrong")
+            assert status == 401
+
+    def test_overview_counts_what_is_indexed(self, running: Daemon) -> None:
+        status, data = api(running, "GET", "overview")
+        assert status == 200
+        assert data["passages"] >= 1
+        assert data["demo"] is False
+        assert data["daemon"]["port"] == running.port
+
+    def test_ask_returns_cited_evidence_a_trace_and_logs_it(self, running: Daemon) -> None:
+        status, data = api(running, "POST", "ask", {"prompt": PROMPT})
+        assert status == 200
+        assert any("NOTES.md" in item["citation"] for item in data["evidence"])
+        assert "evidence" in data["trace"]
+        assert data["tokens"]["total"] <= data["tokens"]["cap"]
+        _, entry = api(running, "GET", f"history/{data['id']}")
+        assert entry["source"] == "ui"
+        assert entry["prompt"] == PROMPT
+
+    def test_an_empty_question_is_refused(self, running: Daemon) -> None:
+        assert api(running, "POST", "ask", {"prompt": "  "})[0] == 400
+
+    def test_feedback_is_recorded(self, running: Daemon) -> None:
+        _, asked = api(running, "POST", "ask", {"prompt": PROMPT})
+        assert api(running, "POST", "feedback", {"id": asked["id"], "useful": True})[0] == 200
+        _, entry = api(running, "GET", f"history/{asked['id']}")
+        assert entry["feedback"] is True
+
+    def test_history_filters_by_source(self, running: Daemon) -> None:
+        api(running, "POST", "ask", {"prompt": PROMPT})
+        _, data = api(running, "GET", "history?source=ui&limit=10")
+        assert data["items"]
+        assert {item["source"] for item in data["items"]} == {"ui"}
+
+    def test_search_labels_how_each_result_was_found(self, running: Daemon) -> None:
+        status, data = api(running, "POST", "search", {"query": "ADX tuple"})
+        assert status == 200
+        assert data["results"]
+        assert {item["via"] for item in data["results"]} == {"words"}
+
+    def test_knowledge_groups_passages_by_source_and_project(self, running: Daemon) -> None:
+        _, data = api(running, "GET", "knowledge")
+        assert any(row["name"] == "alpha" for row in data["by_project"])
+        assert data["roots"]
+
+    def test_profile_statements_can_be_approved_and_rejected(self, running: Daemon) -> None:
+        from projectmind.models import Category, ProfileStatement
+
+        keep = ProfileStatement(
+            statement="Prefers pytest", category=Category.TOOL_PREFERENCE, confidence=0.9
+        )
+        drop = ProfileStatement(
+            statement="Prefers tabs", category=Category.WORK_STYLE, confidence=0.9
+        )
+        running.memory.profile.add_many([keep, drop])
+        _, listed = api(running, "GET", "profile?status=proposed")
+        assert {item["statement"] for item in listed["items"]} >= {"Prefers pytest", "Prefers tabs"}
+        assert api(running, "POST", f"profile/{keep.id}/approve")[1]["status"] == "active"
+        assert api(running, "POST", f"profile/{drop.id}/reject")[1]["status"] == "rejected"
+        assert api(running, "POST", f"profile/{uuid4()}/approve")[0] == 404
+
+    def test_the_tour_is_only_for_the_demo(self, running: Daemon) -> None:
+        assert api(running, "GET", "tour")[0] == 404
+
+    def test_eval_without_a_report_says_where_to_put_one(self, running: Daemon) -> None:
+        status, data = api(running, "GET", "eval")
+        assert status == 200
+        assert data["real"] is None
+
+    def test_bad_json_is_a_400(self, running: Daemon) -> None:
+        connection = http.client.HTTPConnection("127.0.0.1", running.port, timeout=10)
+        connection.request(
+            "POST", "/api/ask", body=b"{nope", headers={"Authorization": f"Bearer {running.token}"}
+        )
+        assert connection.getresponse().status == 400
+        connection.close()
+
+
+def test_a_second_daemon_cannot_share_the_port(running: Daemon) -> None:
+    with pytest.raises(OSError):
+        Daemon(running.settings, port=running.port, sync_minutes=0, announce=False)

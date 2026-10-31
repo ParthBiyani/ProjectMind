@@ -30,6 +30,7 @@ from projectmind.cli import (
     schedule_cmd,
     semantic_cmd,
     sources_cmd,
+    ui_cmd,
 )
 from projectmind.cli._common import console, fail, note, ok, percent, service, table
 from projectmind.config import get_settings
@@ -57,6 +58,7 @@ app.add_typer(schedule_cmd.app, name="schedule")
 app.add_typer(semantic_cmd.app, name="semantic")
 app.command("serve")(daemon_cmd.serve)
 app.command("demo")(demo_cmd.demo)
+app.command("ui")(ui_cmd.ui)
 
 
 @app.callback(invoke_without_command=True)
