@@ -24,20 +24,24 @@ verbatim excerpts and exact citations, and stays silent when it has nothing.**
 
 ## Results
 
-Measured on a real knowledge base (~9,000 documents, 27,403 passages) with 42 questions,
-including 12 deliberately reworded and 10 about topics that appear nowhere:
+Measured on a real knowledge base (11,257 documents, 30,495 passages) with 42 questions,
+including 12 deliberately reworded and 10 about topics that appear nowhere (2026-11-10):
 
 | | Lexical | + semantic search |
 |---|---|---|
-| Right source cited (answerable questions) | **0.812** | **0.844** |
+| Right source cited (answerable questions) | **0.844** | **0.875** |
 | Silent on absent topics | **1.000** | **1.000** |
-| Explicit search finds the right source | 28 / 32 | **30 / 32** |
-| Hook latency (through the daemon) | ~150 ms | ~150 ms |
+| Explicit search finds the right source (top 8) | 26 / 32 | **30 / 32** |
+| Hook latency (through the daemon, idle) | ~450 ms | ~450 ms |
+
+The hook figure includes about 230 ms of Python start-up on this laptop. While a sync is
+running (every 30 minutes, 20 to 60 seconds) a prompt can take a few seconds. The questions
+name private projects, so only the scorer and an example format ship.
 
 Synthetic, reproducible 40-query set (pinned clock): gate precision **1.000**, precision@5
 **0.750**, cross-project hit rate **0.325**, false injection **0.174** against a 0.10 target
-(missed: 4 of 23 served records were unlabelled extras). The real-data questions name private
-projects, so only the scorer and an example format ship (`eval/real.example.yaml`).
+(missed: 4 of 23 served records were unlabelled extras). The example format for the real-data
+set is `eval/real.example.yaml`.
 
 ## Features
 
@@ -164,6 +168,23 @@ card numbers) are dropped, not redacted; identity documents are never opened; so
 only ever read; browser reading is opt-in and has a never-capture list;
 `projectmind sources audit --fix` re-applies the rules to what is already stored.
 
+## Keeping things out
+
+Besides the built-in guards, you choose what is never read:
+
+- **Per folder:** `projectmind sources add D:/Projects --ignore "MyApp/NOTES_PRIVATE.*"`
+  (repeatable; saved in `sources.yaml`; re-adding a folder keeps its list).
+- **Per project:** a `.projectmindignore` file in any folder, one glob per line. `old/`
+  matches folders, `drafts.md` a name anywhere below, `Sub/dir/*.md` a path from that file's
+  folder. A file ignored after it was indexed leaves the index on the next sync.
+- **Sites:** the never-capture list (extension options, or `projectmind browser deny / allow`).
+  Defaults added in later releases reach an existing list once; a site you took off stays
+  off. Sign-in pages (`login.*`, `accounts.*`, `auth.*`), email click-tracking links and any
+  page whose text looks like a credential are never indexed.
+
+`projectmind sources audit` reports what the current rules would refuse and where it is;
+`--fix` removes it.
+
 ## Configuration
 
 Read from the environment and `~/.projectmind/.env` (never a project's `.env`).
@@ -230,6 +251,7 @@ parity suite against a pgvector container. Release history: [CHANGELOG.md](CHANG
   may get nothing (semantic search narrows, not closes, this).
 - Synthetic false injection on the history-record path misses its target (0.174 vs 0.10).
 - The semantic threshold is calibrated on a small set.
+- While a sync runs, a prompt can take a few seconds: the sync shares the daemon's process.
 - Single user, single machine. Model-written notes are not implemented.
 
 ## License

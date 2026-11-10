@@ -5,6 +5,15 @@ loosely and [Semantic Versioning](https://semver.org/spec/v2.0.0.html) strictly.
 
 ## [Unreleased]
 
+### Added
+
+- **Ignore rules.** `sources add <folder> --ignore <glob>` and `.projectmindignore` files
+  keep chosen files and folders out of the index; ones indexed earlier leave on the next sync.
+- **A longer never-capture default list** (card-verification gateways, identity partners,
+  throwaway mail, email click-tracking domains) and a rule that no sign-in page
+  (`login.*`, `accounts.*`, `auth.*`, `id.*`) is ever read, on any site.
+- `max_prompt_chars` (default 20,000): a pasted file or log no longer stalls other prompts.
+
 ### Changed
 
 - **Documentation consolidated.** The `docs/` pages, `extension/README.md` and
@@ -24,6 +33,25 @@ loosely and [Semantic Versioning](https://semver.org/spec/v2.0.0.html) strictly.
 
 ### Fixed
 
+- **Defaults added in a later release now reach an existing `browser.yaml`.** AI-chat sites
+  were on the default list but 113 of their pages stayed indexed because the old config never
+  picked up the new entries. A site taken off the list stays off.
+- **`sources audit` covers browser pages and says where it found things**, without printing
+  the matched text. It no longer reports a count it cannot explain.
+- **Browser pages are scanned for credentials before indexing.** A page with no title is
+  named by its address, so its query string (a token) reached the index through the title;
+  URL-shaped titles are cut at the query, wrapped tracking links are dropped, and stored
+  pages are re-read once under the new rules.
+- `history list / show` and `report` counted only profile and record tokens, so answers made
+  of cited passages showed 0 tokens.
+- `doctor` measured the cold in-process fallback and always warned. It now measures the
+  daemon path real prompts take, from a small folder, and its probe is never logged.
+- Every child process is started without a console window, with a test that fails if one is
+  not. (The daemon's windows flashed on every git call.)
+- Dropped client connections are logged instead of printed as tracebacks.
+- Command output is UTF-8 when piped on Windows, and long table values fold instead of
+  ending in an ellipsis.
+- The audit no longer flags the open-tabs list as a refused page.
 - The extension's timers are re-created on every browser start (Chromium does not
   guarantee alarms survive a restart), and it fetches the list again on start.
 - The embedding model is kept in `~/.projectmind/models` instead of the temp folder,
