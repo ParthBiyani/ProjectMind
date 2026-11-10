@@ -315,6 +315,36 @@ class TestIndexing:
         assert "Found by searching: sqlite fts5 bm25 ranking" in hit.chunk.text
         assert hit.chunk.locator.startswith("visited")
 
+    def test_a_url_used_as_the_title_loses_its_query_string(
+        self, store: Store, tmp_path: Path
+    ) -> None:
+        fake = FakeBrowser(tmp_path / "H")
+        fake.visit(
+            "https://meet.example.org/join.do?name=Ann&token=AbCdEfGh12345678IjKl",
+            "meet.example.org/join.do?name=Ann&token=AbCdEfGh12345678IjKl",
+            NOW - timedelta(days=1),
+        )
+        index_history(store, config(), databases=[fake.done()], now=NOW)
+        [doc] = store.list_documents()
+        assert doc.title == "meet.example.org/join.do"
+        assert all("token" not in hit.chunk.text for hit in store.search_chunks(["join"]))
+
+    def test_a_page_that_looks_like_a_credential_is_withheld_and_removed(
+        self, store: Store, tmp_path: Path
+    ) -> None:
+        fake = FakeBrowser(tmp_path / "H")
+        fake.visit("https://docs.example.org/guide", "Setup guide", NOW - timedelta(days=1))
+        fake.visit(
+            "https://app.example.org/home",
+            "Dashboard api_key=Zx81qLmN04aBc9QrTuV2wXy",
+            NOW - timedelta(days=1),
+        )
+        database = fake.done()
+        report = index_history(store, config(), databases=[database], now=NOW)
+        assert (report.indexed, report.withheld) == (1, 1)
+        assert "withheld" in report.summary()
+        assert [d.uri for d in store.list_documents()] == ["https://docs.example.org/guide"]
+
     def test_nothing_from_a_listed_site_is_stored(self, store: Store, tmp_path: Path) -> None:
         index_history(store, config(), databases=[self.make(tmp_path)], now=NOW)
         assert store.search_chunks(["inbox"]) == []

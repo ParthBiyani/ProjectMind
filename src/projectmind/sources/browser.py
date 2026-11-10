@@ -41,6 +41,7 @@ import yaml
 
 from projectmind.logging import get_logger
 from projectmind.sources.models import SourceChunk
+from projectmind.sources.secrets import contains_secret
 from projectmind.storage import ChunkRecord, DocumentRecord, Store
 
 log = get_logger(__name__)
@@ -275,6 +276,18 @@ def clean_url(url: str) -> str | None:
     return f"{parts.scheme}://{parts.hostname}{parts.path}".rstrip("/") or None
 
 
+#: A page with no title is named by its address, query string and all.
+_URL_TITLE = re.compile(r"^(?:https?://)?[\w-]+(?:\.[\w-]+)+(?::\d+)?(?:/\S*)?[?#]")
+
+
+def clean_title(title: str) -> str:
+    """The page title, minus the query or fragment when the "title" is really a URL."""
+    text = title.strip()
+    if _URL_TITLE.match(text):
+        return re.split(r"[?#]", text, maxsplit=1)[0]
+    return text
+
+
 #: `/L0/https:%2F%2Fother.site%2F...`: a link wrapped inside another link's path.
 _WRAPPED_LINK = re.compile(r"(?i)https?(?::|%3a)(?:/|%2f){2}")
 #: `...%26token=abc` or `/token=abc`: a credential-named parameter inside the path.
@@ -344,12 +357,12 @@ def _read(connection: sqlite3.Connection, config: BrowserConfig, since: datetime
             continue
         page = pages.get(cleaned)
         if page is None:
-            pages[cleaned] = Page(cleaned, (row["title"] or "").strip(), 1, moment, moment)
+            pages[cleaned] = Page(cleaned, clean_title(row["title"] or ""), 1, moment, moment)
         else:
             page.visits += 1
             page.last = moment
             if row["title"]:
-                page.title = row["title"].strip()
+                page.title = clean_title(row["title"])
         allowed_visits.append((moment, cleaned))
 
     # A search is knowledge only if it led somewhere allowed.
@@ -392,13 +405,21 @@ class BrowserReport:
     unchanged: int = 0
     removed: int = 0
     with_queries: int = 0
+    #: Pages whose text looked like a credential or personal identifier; never indexed.
+    withheld: int = 0
     errors: list[str] = field(default_factory=list)
 
     def summary(self) -> str:
+        withheld = f", {self.withheld} withheld" if self.withheld else ""
         return (
-            f"{self.indexed} pages indexed ({self.unchanged} unchanged, {self.removed} removed) "
-            f"from {self.databases} browser profile(s)"
+            f"{self.indexed} pages indexed ({self.unchanged} unchanged, {self.removed} removed"
+            f"{withheld}) from {self.databases} browser profile(s)"
         )
+
+
+def _holds_secret(page: Page) -> bool:
+    chunk = page_chunk(page)
+    return contains_secret(f"{chunk.heading}\n{chunk.text}")
 
 
 def index_history(
@@ -432,6 +453,12 @@ def index_history(
             for query in page.queries:
                 if query not in existing.queries and len(existing.queries) < MAX_QUERIES_PER_PAGE:
                     existing.queries.append(query)
+
+    # The same credential scan the file reader applies: a page that trips it is not
+    # indexed, and one indexed earlier leaves with the other pages no longer allowed.
+    for url in [u for u, p in merged.items() if _holds_secret(p)]:
+        del merged[url]
+        report.withheld += 1
 
     report.pages = len(merged)
     report.with_queries = sum(1 for page in merged.values() if page.queries)
