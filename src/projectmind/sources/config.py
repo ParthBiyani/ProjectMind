@@ -24,6 +24,9 @@ class RootConfig:
     #: How many levels below the root a project folder sits. 1 means each child
     #: of the root is a project; 0 means the root itself is a single project.
     depth: int = 1
+    #: Globs for files and folders never to read (see `walker.parse_ignore`). A
+    #: `.projectmindignore` file inside the folder adds to these.
+    ignore: tuple[str, ...] = ()
 
     @property
     def name(self) -> str:
@@ -50,6 +53,7 @@ class SourcesConfig:
                 path=Path(str(entry["path"])).expanduser(),
                 kind=str(entry.get("kind", "project")),
                 depth=int(entry.get("depth", 1)),
+                ignore=tuple(str(item) for item in entry.get("ignore") or ()),
             )
             for entry in raw.get("roots", [])
             if isinstance(entry, dict) and entry.get("path")
@@ -62,6 +66,7 @@ class SourcesConfig:
         payload = {
             "roots": [
                 {"path": root.path.as_posix(), "kind": root.kind, "depth": root.depth}
+                | ({"ignore": list(root.ignore)} if root.ignore else {})
                 for root in self.roots
             ]
         }

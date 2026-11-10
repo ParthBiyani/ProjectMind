@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import os
 from collections import Counter
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 from fnmatch import fnmatch
 from pathlib import Path
@@ -68,6 +68,64 @@ FLOOD_LIMIT = 150
 LOG_TAIL_BYTES = 1_000_000
 
 
+#: A file of this name in any folder hides what matches its lines from that folder down.
+IGNORE_FILE = ".projectmindignore"
+
+
+@dataclass(frozen=True, slots=True)
+class IgnoreRule:
+    """One line of an ignore file: a name pattern, or a path pattern if it has a slash."""
+
+    base: Path
+    pattern: str
+    directories_only: bool
+    anchored: bool
+
+
+def parse_ignore(lines: Iterable[str], base: Path) -> list[IgnoreRule]:
+    """Rules from ignore-file lines (or a root's `ignore:` list), relative to `base`.
+
+    A line is a glob. `notes.md` or `DEEP_DIVE.*` match that name anywhere below;
+    `drafts/` matches folders only; a line with a slash (`Project/old/*.md`) matches the
+    path from `base`. Blank lines and `#` comments are skipped. Case is ignored.
+    """
+    rules: list[IgnoreRule] = []
+    for line in lines:
+        text = str(line).strip().replace("\\", "/")
+        if not text or text.startswith("#"):
+            continue
+        directories_only = text.endswith("/")
+        text = text.strip("/").lower()
+        if text:
+            rules.append(IgnoreRule(base, text, directories_only, anchored="/" in text))
+    return rules
+
+
+def load_ignore_file(directory: Path) -> list[IgnoreRule]:
+    try:
+        text = (directory / IGNORE_FILE).read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return []
+    return parse_ignore(text.splitlines(), directory)
+
+
+def is_ignored(path: Path, rules: Iterable[IgnoreRule], *, directory: bool) -> bool:
+    name = path.name.lower()
+    for rule in rules:
+        if rule.directories_only and not directory:
+            continue
+        if rule.anchored:
+            try:
+                relative = path.relative_to(rule.base).as_posix().lower()
+            except ValueError:
+                continue
+            if fnmatch(relative, rule.pattern):
+                return True
+        elif fnmatch(name, rule.pattern):
+            return True
+    return False
+
+
 @dataclass(frozen=True, slots=True)
 class Candidate:
     path: Path
@@ -90,17 +148,22 @@ def classify(path: Path, size: int) -> str | None:
     return source_type
 
 
-def walk(root: Path) -> Iterator[Candidate]:
+def walk(root: Path, ignore: Iterable[str] = ()) -> Iterator[Candidate]:
     """Every readable candidate under `root`, without entering skipped folders.
+
+    `ignore` is a root's own list of patterns; `.projectmindignore` files found on the
+    way down add to it. Ignored files and folders are never opened or indexed, and
+    ones indexed earlier leave the index on the next scan.
 
     A folder holding hundreds of files of one type is a data dump (a YOLO label
     folder, an export of per-item records), not writing. Those files are skipped
     as a group: indexing fifty thousand annotation files would bury everything a
     person actually wrote.
     """
-    stack = [root]
+    stack: list[tuple[Path, tuple[IgnoreRule, ...]]] = [(root, tuple(parse_ignore(ignore, root)))]
     while stack:
-        directory = stack.pop()
+        directory, inherited = stack.pop()
+        rules = (*inherited, *load_ignore_file(directory))
         try:
             entries = list(os.scandir(directory))
         except OSError:
@@ -110,11 +173,17 @@ def walk(root: Path) -> Iterator[Candidate]:
         for entry in entries:
             try:
                 if entry.is_dir(follow_symlinks=False):
-                    if entry.name.lower() not in SKIP_DIRS and not is_sensitive_name(entry.name):
-                        stack.append(Path(entry.path))
+                    if (
+                        entry.name.lower() not in SKIP_DIRS
+                        and not is_sensitive_name(entry.name)
+                        and not is_ignored(Path(entry.path), rules, directory=True)
+                    ):
+                        stack.append((Path(entry.path), rules))
                 elif entry.is_file(follow_symlinks=False):
-                    stat = entry.stat(follow_symlinks=False)
                     path = Path(entry.path)
+                    if is_ignored(path, rules, directory=False):
+                        continue
+                    stat = entry.stat(follow_symlinks=False)
                     source_type = classify(path, stat.st_size)
                     if source_type:
                         candidates.append(

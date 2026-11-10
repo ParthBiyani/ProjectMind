@@ -44,6 +44,18 @@ class TestSourcesCommands:
         assert result.exit_code == 0
         assert "sources add" in result.stdout
 
+    def test_ignore_is_kept_when_a_folder_is_added_again(self, tmp_path: Path) -> None:
+        root = make_tree(tmp_path)
+        args = ["sources", "add", str(root)]
+        assert runner.invoke(app, [*args, "--ignore", "beta/*"]).exit_code == 0
+        assert runner.invoke(app, [*args, "--depth", "1"]).exit_code == 0  # no --ignore given
+        assert runner.invoke(app, ["sources", "scan"]).exit_code == 0
+        assert (
+            runner.invoke(app, ["sources", "search", "exponential backoff"]).stdout.count("beta")
+            == 0
+        )
+        assert "alpha" in runner.invoke(app, ["sources", "search", "profit factor"]).stdout
+
     def test_add_scan_list_and_search(self, tmp_path: Path) -> None:
         root = make_tree(tmp_path)
         assert runner.invoke(app, ["sources", "add", str(root)]).exit_code == 0

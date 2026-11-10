@@ -33,6 +33,12 @@ def add(
     depth: int = typer.Option(
         1, min=0, help="Levels below the folder where each project lives. 0 = the folder itself."
     ),
+    ignore: list[str] = typer.Option(
+        [],
+        "--ignore",
+        help="A glob never to read, e.g. 'MyApp/DEEP_DIVE.*' (repeatable). Keeps the "
+        "existing ones if none are given. A .projectmindignore file in the folder works too.",
+    ),
 ) -> None:
     """Add a folder as a knowledge source."""
     resolved = path.expanduser().resolve()
@@ -43,9 +49,13 @@ def add(
         fail(f"kind must be one of: {', '.join(KINDS)}")
         raise typer.Exit(code=1)
     config, home = _roots_or_exit()
-    created = config.add(RootConfig(path=resolved, kind=kind, depth=depth))
+    existing = next((r for r in config.roots if r.key == resolved.as_posix()), None)
+    patterns = tuple(ignore) or (existing.ignore if existing else ())
+    created = config.add(RootConfig(path=resolved, kind=kind, depth=depth, ignore=patterns))
     config.save(home)
     ok(f"{'added' if created else 'updated'} {resolved} ({kind}, depth {depth})")
+    if patterns:
+        note(f"never read: {', '.join(patterns)}")
     note("read it now with: projectmind sources scan")
 
 

@@ -110,7 +110,11 @@ class KnowledgeIndexer:
         resolver = ProjectResolver(root)
         seen: set[str] = set()
 
-        found = transcripts.candidates(root.path) if root.kind == "transcripts" else walk(root.path)
+        found = (
+            transcripts.candidates(root.path)
+            if root.kind == "transcripts"
+            else walk(root.path, root.ignore)
+        )
         for candidate in found:
             report.seen += 1
             uri = candidate.path.as_posix()
