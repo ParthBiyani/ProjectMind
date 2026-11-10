@@ -14,7 +14,7 @@ import pytest
 
 from projectmind import hook_entry
 from projectmind.config import Settings
-from projectmind.daemon import Daemon, load_token
+from projectmind.daemon import Daemon, _Server, load_token
 from projectmind.evaluation.fixtures import FixtureCorpus
 from projectmind.evaluation.live import load_corpus
 from projectmind.sources.config import RootConfig, SourcesConfig
@@ -422,6 +422,21 @@ class TestDashboardApi:
         )
         assert connection.getresponse().status == 400
         connection.close()
+
+
+def test_a_client_that_hangs_up_is_not_a_traceback_on_stderr(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    for error in (ConnectionResetError(10054, "reset"), BrokenPipeError(), TimeoutError()):
+        try:
+            raise error
+        except OSError:
+            _Server.handle_error(None, None, ("127.0.0.1", 1))  # type: ignore[arg-type]
+    try:
+        raise ValueError("a real fault")
+    except ValueError:
+        _Server.handle_error(None, None, ("127.0.0.1", 1))  # type: ignore[arg-type]
+    assert capsys.readouterr().err == ""
 
 
 def test_a_second_daemon_cannot_share_the_port(running: Daemon) -> None:

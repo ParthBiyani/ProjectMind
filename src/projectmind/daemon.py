@@ -89,6 +89,18 @@ class _Server(ThreadingHTTPServer):
             self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
         super().server_bind()
 
+    def handle_error(self, request: Any, client_address: Any) -> None:
+        """Log a failed request instead of printing a traceback to stderr.
+
+        A client that hangs up mid-request (a closed tab, a hook that timed out) is
+        routine, not a fault. Anything else goes to the log with its type.
+        """
+        error = sys.exception()
+        if isinstance(error, ConnectionError | TimeoutError):
+            log.debug("client went away", extra={"error": type(error).__name__})
+            return
+        log.warning("request failed", extra={"error": repr(error), "client": str(client_address)})
+
 
 class Daemon:
     def __init__(
