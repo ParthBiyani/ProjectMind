@@ -30,6 +30,30 @@ def home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Path]:
     reset_settings()
 
 
+class TestSelfTestProbe:
+    def count_logged(self) -> int:
+        from projectmind.config import get_settings
+        from projectmind.storage import HistoryFilter, open_store
+
+        store = open_store(get_settings())
+        try:
+            return len(store.find_bundles(HistoryFilter()))
+        finally:
+            store.close()
+
+    def test_a_marked_probe_is_answered_but_never_logged(self, home: Path) -> None:
+        prompt = "Add Supabase auth to a Flutter screen and wire the session provider"
+        hook_entry.prepare_reply(
+            {"prompt": prompt, "cwd": str(home), "projectmind_self_test": True}
+        )
+        assert self.count_logged() == 0
+
+    def test_an_ordinary_prompt_is_still_logged(self, home: Path) -> None:
+        prompt = "Add Supabase auth to a Flutter screen and wire the session provider"
+        hook_entry.prepare_reply({"prompt": prompt, "cwd": str(home)})
+        assert self.count_logged() == 1
+
+
 class TestReadEvent:
     def test_utf8_bytes_are_decoded_regardless_of_the_console_code_page(self) -> None:
         raw = json.dumps({"prompt": "fix the — em dash 要"}, ensure_ascii=False).encode()

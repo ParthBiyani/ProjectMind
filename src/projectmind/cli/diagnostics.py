@@ -12,7 +12,6 @@ import os
 import shutil
 import subprocess
 import sys
-import tempfile
 import time
 from dataclasses import dataclass
 from enum import StrEnum
@@ -30,8 +29,11 @@ from projectmind.models import StatementStatus
 from projectmind.process import NO_WINDOW
 from projectmind.storage import StatementFilter, open_store
 
-#: A hook that costs more than this is felt on every prompt.
+#: A hook that costs more than this is felt on every prompt. Through the daemon the
+#: work is a lookup; with no daemon the hook opens the database and index itself, which
+#: is honestly slower, so it is judged against a looser bar.
 HOOK_BUDGET_SECONDS = 1.0
+HOOK_BUDGET_NO_DAEMON_SECONDS = 3.0
 HOOK_TIMEOUT_SECONDS = 30.0
 
 SELF_TEST_PROMPT = "Add Supabase auth to a Flutter screen and wire the session provider"
@@ -244,20 +246,37 @@ def check_mcp_registration() -> Finding:
 def check_hook_runs(settings: Settings) -> Finding:
     """Run the hook exactly as the installer wires it, and judge what it prints.
 
-    A canned payload, an isolated interpreter and a scratch working directory:
-    the same conditions a hook sees inside someone else's project. History is
-    switched off for the run so the self-test does not appear as a real prompt.
+    A canned payload and an isolated interpreter, run from a small scratch folder (a
+    temp directory can hold thousands of files, and the first prompt in a folder
+    fingerprints it). The probe is marked so it is never logged as a real prompt.
+
+    With the daemon running this measures the path real prompts take. Without one it
+    measures the in-process fallback, which is what real prompts would use.
     """
+    from projectmind.hook_entry import daemon_alive
+
+    scratch = settings.home / "cache"
+    scratch.mkdir(parents=True, exist_ok=True)
     payload = json.dumps(
-        {"prompt": SELF_TEST_PROMPT, "cwd": tempfile.gettempdir(), "session_id": "doctor"}
+        {
+            "prompt": SELF_TEST_PROMPT,
+            "cwd": str(scratch),
+            "session_id": "doctor",
+            "projectmind_self_test": True,
+        }
     ).encode("utf-8")
     env = {
         **os.environ,
         "PROJECTMIND_HOME": str(settings.home),
         "PROJECTMIND_HISTORY": "off",
-        # Test the hook's own path; the daemon is checked separately.
-        "PROJECTMIND_NO_DAEMON": "1",
     }
+    through_daemon = daemon_alive()
+    if through_daemon:
+        env.pop("PROJECTMIND_NO_DAEMON", None)
+    else:
+        env["PROJECTMIND_NO_DAEMON"] = "1"
+    budget = HOOK_BUDGET_SECONDS if through_daemon else HOOK_BUDGET_NO_DAEMON_SECONDS
+    route = "via the daemon" if through_daemon else "in process, no daemon"
     started = time.perf_counter()
     try:
         result = subprocess.run(
@@ -265,7 +284,7 @@ def check_hook_runs(settings: Settings) -> Finding:
             input=payload,
             capture_output=True,
             env=env,
-            cwd=tempfile.gettempdir(),
+            cwd=scratch,
             timeout=HOOK_TIMEOUT_SECONDS,
             check=False,
             creationflags=NO_WINDOW,
@@ -291,8 +310,8 @@ def check_hook_runs(settings: Settings) -> Finding:
         return Finding("hook self-test", Status.FAIL, "output was not valid UTF-8 JSON")
 
     served = "context injected" if reply else "nothing injected (empty memory is a valid answer)"
-    speed = f"{elapsed * 1000:.0f} ms"
-    if elapsed > HOOK_BUDGET_SECONDS:
+    speed = f"{elapsed * 1000:.0f} ms {route}"
+    if elapsed > budget:
         return Finding(
             "hook self-test", Status.WARN, f"{served}, but {speed} is slow for every prompt"
         )
