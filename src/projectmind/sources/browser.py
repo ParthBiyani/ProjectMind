@@ -48,6 +48,9 @@ log = get_logger(__name__)
 
 CONFIG_FILE = "browser.yaml"
 CONFIG_VERSION = 2
+#: Bump when what is stored for a page changes (title cleaning, credential scan), so pages
+#: read under the old rules are read again once rather than kept as they were.
+PAGE_RULES = 2
 ROOT_KEY = "browser"
 CHROMIUM_EPOCH = datetime(1601, 1, 1, tzinfo=UTC)
 
@@ -467,7 +470,7 @@ def index_history(
 
     known = store.document_hashes(ROOT_KEY)
     for page in merged.values():
-        fingerprint = f"{page.visits}-{page.last.isoformat()}-{len(page.queries)}"
+        fingerprint = f"{page.visits}-{page.last.isoformat()}-{len(page.queries)}-r{PAGE_RULES}"
         if known.get(page.url) == fingerprint:
             report.unchanged += 1
             continue

@@ -21,7 +21,7 @@ from projectmind.sources.browser import (
     page_chunk,
     read_pages,
 )
-from projectmind.storage import SqliteStore, Store
+from projectmind.storage import DocumentRecord, SqliteStore, Store
 
 runner = CliRunner()
 NOW = datetime(2026, 10, 30, 12, 0, tzinfo=UTC)
@@ -328,6 +328,30 @@ class TestIndexing:
         [doc] = store.list_documents()
         assert doc.title == "meet.example.org/join.do"
         assert all("token" not in hit.chunk.text for hit in store.search_chunks(["join"]))
+
+    def test_a_page_stored_under_older_rules_is_read_again(
+        self, store: Store, tmp_path: Path
+    ) -> None:
+        database = self.make(tmp_path)
+        index_history(store, config(), databases=[database], now=NOW)
+        [doc] = store.list_documents()
+        store.replace_document(
+            DocumentRecord(
+                id=doc.id,
+                uri=doc.uri,
+                source_type="web",
+                root=doc.root,
+                project_key="web",
+                title="old title with ?token=x",
+                content_hash="1-2026-10-28T12:01:00+00:00-1",  # from before PAGE_RULES
+                mtime=doc.mtime,
+                indexed_at=doc.indexed_at,
+            ),
+            [],
+        )
+        again = index_history(store, config(), databases=[database], now=NOW)
+        assert again.indexed == 1
+        assert store.get_document(doc.uri).title == "SQLite FTS5 Extension"  # type: ignore[union-attr]
 
     def test_a_page_that_looks_like_a_credential_is_withheld_and_removed(
         self, store: Store, tmp_path: Path
