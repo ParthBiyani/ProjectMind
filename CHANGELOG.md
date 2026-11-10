@@ -44,14 +44,14 @@ Closing the measured gaps, and making the system something you can watch work.
   System. `projectmind ui --demo` serves a fictional, fully indexed workspace on a free
   port so a demo never shows personal data; `--no-browser` prints the URL. The token
   reaches the page in the URL fragment and API calls require it; strict
-  Content-Security-Policy, no external requests. See docs/web-ui.md.
+  Content-Security-Policy, no external requests. See the README's Web UI section.
 - **Semantic search (optional, off by default).** Questions can be matched to
   passages by meaning as well as by words (`pip install 'projectmind[semantic]'`,
   `projectmind semantic enable`, `projectmind semantic index`). Vectors are stored
   per model (migration 005, SQLite and Postgres), embedded in the background after
   each sync, and held in memory by the daemon. Automatic injection keeps a strict,
   calibrated bar (cosine 0.78, near the best match, sharing a distinctive word). See
-  docs/semantic.md.
+  the README's Features and Configuration sections.
 - **`search_sources`** MCP tool and a `sources search` that find passages by words and
   by meaning, each result labelled with how it was found.
 - `eval real --semantic`, and a `semantic` check in `doctor`.
@@ -227,14 +227,14 @@ The reflection prefilter discards 99.1% of statement-record pairs.
 
 - **`false_injection_rate` misses its target at 0.174.** Not rounded away. The
   threshold sweep and the one trade that deliberately made the number worse are
-  in docs/evaluation.md.
+  recorded in the private evaluation notes, not in this repository.
 - **Four ranking constants were fitted on the eval set**, which therefore no
   longer measures them independently. A second labelled set is the fix.
 - **Proposal acceptance rate is unmeasured.** It needs a human working a queue
   of real proposals; the corpus has not drifted enough to produce one outside a
   constructed test.
-- **Phase 6 is unbuilt** by design — see
-  docs/phase-6-capture.md.
+- **Phase 6 (profile proposals from reading patterns) is unbuilt** by design; browser
+  reading was rebuilt differently and shipped later.
 
 ### Fixed along the way
 
