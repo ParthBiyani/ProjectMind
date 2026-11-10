@@ -6,7 +6,7 @@ verbatim excerpts and exact citations, and stays silent when it has nothing.**
 
 [![CI](https://github.com/ParthBiyani/ProjectMind/actions/workflows/ci.yml/badge.svg)](https://github.com/ParthBiyani/ProjectMind/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/ParthBiyani/ProjectMind)](https://github.com/ParthBiyani/ProjectMind/releases)
-![Python](https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.13-blue)
+![Python](https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.13%20%7C%203.14-blue)
 ![Types](https://img.shields.io/badge/mypy-strict-blue)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
@@ -221,7 +221,7 @@ mypy                        # strict
 node --test extension/test/lib.test.js
 ```
 
-CI runs lint, strict types, tests on Python 3.11 / 3.12 / 3.13, a Windows job and the storage
+CI runs lint, strict types, tests on Python 3.11 to 3.14, a Windows job on 3.12 and 3.14 and the storage
 parity suite against a pgvector container. Release history: [CHANGELOG.md](CHANGELOG.md).
 
 ## Known limitations

@@ -85,7 +85,7 @@ class TestHookChecks:
                         "hooks": [
                             {
                                 "type": "command",
-                                "command": '"C:\gone\python.exe" -I -m projectmind.hook_entry '
+                                "command": '"C:\\gone\\python.exe" -I -m projectmind.hook_entry '
                                 "user-prompt-submit",
                             }
                         ],
