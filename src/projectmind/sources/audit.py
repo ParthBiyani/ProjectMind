@@ -83,6 +83,8 @@ def audit(store: Store, *, fix: bool = False, browser: BrowserConfig | None = No
 
 def _refused_page(uri: str, browser: BrowserConfig | None) -> bool:
     """Whether the browser reader would refuse this page today."""
+    if not uri.startswith(("http://", "https://")):
+        return False  # the capture module's own `browser://open-tabs` list, not a page
     if clean_url(uri) is None:
         return True
     if browser is None:

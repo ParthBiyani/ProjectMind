@@ -97,6 +97,10 @@ class TestAudit:
         assert store.get_document("https://chatgpt.com/c/abc") is None
         assert store.get_document("https://docs.python.org/3/library/re.html") is not None
 
+    def test_the_open_tabs_list_is_not_mistaken_for_a_page(self, store: Store) -> None:
+        add(store, "browser://open-tabs", "Open in the browser now:", source_type="web")
+        assert audit(store, browser=BrowserConfig(enabled=True)).clean
+
     def test_a_wrapped_tracking_link_is_refused_even_without_a_config(self, store: Store) -> None:
         add(
             store,
