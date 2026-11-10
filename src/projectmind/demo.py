@@ -25,6 +25,7 @@ from pathlib import Path
 
 from projectmind import capture
 from projectmind.config import Settings
+from projectmind.process import NO_WINDOW
 from projectmind.service import MemoryService
 from projectmind.sources.browser import BrowserConfig
 from projectmind.sources.config import RootConfig, SourcesConfig
@@ -167,6 +168,7 @@ def _git(repo: Path, *args: str) -> None:
         check=True,
         capture_output=True,
         text=True,
+        creationflags=NO_WINDOW,
     )
 
 

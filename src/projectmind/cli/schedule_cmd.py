@@ -22,6 +22,7 @@ from pathlib import Path
 import typer
 
 from projectmind.cli._common import fail, note, ok
+from projectmind.process import NO_WINDOW
 
 app = typer.Typer(help="Start the daemon automatically at logon.", no_args_is_help=True)
 
@@ -67,7 +68,12 @@ def launcher_script() -> str:
 
 def _run(*args: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
-        ["schtasks", *args], capture_output=True, text=True, check=False, timeout=30
+        ["schtasks", *args],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=30,
+        creationflags=NO_WINDOW,
     )
 
 

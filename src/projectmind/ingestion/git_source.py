@@ -19,6 +19,7 @@ from datetime import datetime
 from pathlib import Path
 
 from projectmind.logging import get_logger
+from projectmind.process import NO_WINDOW
 
 log = get_logger(__name__)
 
@@ -150,6 +151,7 @@ def _git(root: Path, *args: str) -> tuple[int, str, str]:
             errors="replace",
             timeout=GIT_TIMEOUT,
             check=False,
+            creationflags=NO_WINDOW,
         )
     except (OSError, subprocess.SubprocessError) as exc:
         log.warning("git failed", extra={"root": str(root), "error": str(exc)})

@@ -28,6 +28,7 @@ from projectmind.fingerprint.manifests import (
 )
 from projectmind.logging import get_logger
 from projectmind.models import Fingerprint, utcnow
+from projectmind.process import NO_WINDOW
 
 log = get_logger(__name__)
 
@@ -305,6 +306,7 @@ class ProjectScanner:
                 text=True,
                 timeout=GIT_TIMEOUT,
                 check=False,
+                creationflags=NO_WINDOW,
             )
         except (OSError, subprocess.SubprocessError):
             return None

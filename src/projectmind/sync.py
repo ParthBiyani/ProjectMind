@@ -22,6 +22,7 @@ from projectmind.config import Settings
 from projectmind.ingestion.pipeline import IngestionPipeline, IngestionReport
 from projectmind.logging import get_logger
 from projectmind.models import utcnow
+from projectmind.process import NO_WINDOW
 from projectmind.sources.browser import BrowserConfig, BrowserReport, index_history
 from projectmind.sources.config import SourcesConfig
 from projectmind.sources.indexer import DEFAULT_MIN_AGE_SECONDS, KnowledgeIndexer, ScanReport
@@ -70,6 +71,7 @@ def resolve_authors(settings: Settings) -> list[str]:
             text=True,
             check=False,
             timeout=5,
+            creationflags=NO_WINDOW,
         ).stdout.strip()
     except (OSError, subprocess.SubprocessError):
         configured = ""

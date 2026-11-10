@@ -27,6 +27,7 @@ from projectmind.cli.install_cmd import (
 )
 from projectmind.config import Settings
 from projectmind.models import StatementStatus
+from projectmind.process import NO_WINDOW
 from projectmind.storage import StatementFilter, open_store
 
 #: A hook that costs more than this is felt on every prompt.
@@ -267,6 +268,7 @@ def check_hook_runs(settings: Settings) -> Finding:
             cwd=tempfile.gettempdir(),
             timeout=HOOK_TIMEOUT_SECONDS,
             check=False,
+            creationflags=NO_WINDOW,
         )
     except subprocess.TimeoutExpired:
         return Finding(
