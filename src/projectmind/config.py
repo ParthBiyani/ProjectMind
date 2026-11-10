@@ -58,6 +58,15 @@ class Settings(BaseSettings):
         ),
     )
 
+    max_prompt_chars: int = Field(
+        default=20_000,
+        description=(
+            "Longest question searched, in characters; the rest is ignored. A pasted log or "
+            "file would otherwise be matched word by word while the daemon's lock is held, "
+            "stalling every other prompt."
+        ),
+    )
+
     semantic: bool = Field(
         default=False,
         description="Also match questions to passages by meaning (needs the [semantic] extra).",

@@ -125,6 +125,7 @@ class MemoryService:
         """Return the smallest bundle that improves the next action."""
         started = time.perf_counter()
         moment = now or utcnow()
+        prompt = prompt[: self.settings.max_prompt_chars]
 
         project = self.resolve_project(project_path)
         analysis = self.analyse(prompt, project.fingerprint)
@@ -367,6 +368,7 @@ class MemoryService:
         self, query: str, *, project_key: str | None = None, limit: int = 8
     ) -> list[Found]:
         """Explicit search over the indexed files, notes and pages, by words and by meaning."""
+        query = query[: self.settings.max_prompt_chars]
         return self.evidence.explore(query, project_key=project_key, limit=limit)
 
     def _history_mode(self, project_name: str | None) -> str:
