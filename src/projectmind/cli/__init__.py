@@ -32,7 +32,16 @@ from projectmind.cli import (
     sources_cmd,
     ui_cmd,
 )
-from projectmind.cli._common import console, fail, note, ok, percent, service, table
+from projectmind.cli._common import (
+    console,
+    fail,
+    note,
+    ok,
+    percent,
+    service,
+    table,
+    use_utf8_streams,
+)
 from projectmind.config import get_settings
 from projectmind.models import utcnow
 from projectmind.profile.seed import seed_profile
@@ -263,6 +272,7 @@ def export_memory(
 
 
 def main() -> None:
+    use_utf8_streams()
     app()
 
 
