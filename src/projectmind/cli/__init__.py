@@ -132,7 +132,8 @@ def context(
     console.print(bundle.render())
     console.print(
         f"\n[dim]{bundle.total_tokens} tokens "
-        f"({bundle.profile_tokens} profile + {bundle.episodic_tokens} episodic) · "
+        f"({bundle.profile_tokens} profile + {bundle.episodic_tokens} records + "
+        f"{bundle.evidence_tokens} passages) · "
         f"{bundle.latency_ms:.1f} ms · {bundle.gate_reason}[/dim]"
     )
     if bundle.entities:
@@ -158,7 +159,7 @@ def report(days: int = typer.Option(30, help="Window in days.")) -> None:
     rendered.add_row("with a cross-project hit", str(stats.cross_project_bundles))
     rendered.add_row(
         "tokens served",
-        f"{stats.total_profile_tokens + stats.total_episodic_tokens:,}",
+        f"{stats.total_tokens:,}",
     )
     rendered.add_row("mean latency", f"{stats.mean_latency_ms:.1f} ms")
     rendered.add_row("p95 latency", f"{stats.p95_latency_ms:.1f} ms")

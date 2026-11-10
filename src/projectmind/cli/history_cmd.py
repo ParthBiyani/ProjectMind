@@ -82,7 +82,7 @@ def list_interactions(
             entry.source,
             entry.project_key or "-",
             "[green]yes[/green]" if entry.injected else "[dim]no[/dim]",
-            str(entry.profile_tokens + entry.episodic_tokens),
+            str(entry.total_tokens),
             text if len(text) <= 70 else text[:67] + "...",
         )
     console.print(rendered)
@@ -142,7 +142,7 @@ def show_interaction(
             )
         console.print(rendered)
 
-    console.print(f"\n[bold]answered[/bold] {entry.profile_tokens + entry.episodic_tokens} tokens")
+    console.print(f"\n[bold]answered[/bold] {entry.total_tokens} tokens")
     if entry.rendered_text:
         console.print(entry.rendered_text, markup=False)
     elif entry.injected:

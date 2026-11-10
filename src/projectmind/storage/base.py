@@ -114,6 +114,11 @@ class BundleLogEntry:
     evidence_ids: tuple[UUID, ...] = ()
     evidence_tokens: int = 0
 
+    @property
+    def total_tokens(self) -> int:
+        """Everything the answer cost: statements, records and cited passages."""
+        return self.profile_tokens + self.episodic_tokens + self.evidence_tokens
+
 
 @dataclass(frozen=True, slots=True)
 class DocumentRecord:
@@ -200,6 +205,7 @@ class UsageStats:
     cross_project_bundles: int = 0
     total_profile_tokens: int = 0
     total_episodic_tokens: int = 0
+    total_evidence_tokens: int = 0
     feedback_positive: int = 0
     feedback_negative: int = 0
     mean_latency_ms: float = 0.0
@@ -208,6 +214,10 @@ class UsageStats:
     by_project: dict[str, int] = field(default_factory=dict)
     first_seen: datetime | None = None
     last_seen: datetime | None = None
+
+    @property
+    def total_tokens(self) -> int:
+        return self.total_profile_tokens + self.total_episodic_tokens + self.total_evidence_tokens
 
     @property
     def injection_rate(self) -> float:
@@ -631,6 +641,7 @@ def aggregate_usage(entries: Iterable[BundleLogEntry]) -> UsageStats:
             stats.cross_project_bundles += 1
         stats.total_profile_tokens += entry.profile_tokens
         stats.total_episodic_tokens += entry.episodic_tokens
+        stats.total_evidence_tokens += entry.evidence_tokens
         if entry.feedback is True:
             stats.feedback_positive += 1
         elif entry.feedback is False:
