@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import ipaddress
 import os
+import re
 import shutil
 import sqlite3
 import tempfile
@@ -92,6 +93,22 @@ DEFAULT_DENY = (
     # shopping and orders
     "amazon.in", "amazon.com", "flipkart.com", "myntra.com", "swiggy.com", "zomato.com",
     "blinkit.com", "zeptonow.com", "bigbasket.com",
+    # card-verification and payment gateways, identity partners, throwaway mail
+    "wibmo.com", "juspay.in", "meon.co.in", "temp-mail.org",
+    # email click-tracking and campaign redirects (their links carry tokens)
+    "sendgrid.net", "awstrack.me", "emailshot.io", "list-manage.com", "mandrillapp.com",
+    "mailgun.org", "hubspotlinks.com",
+)  # fmt: skip
+
+#: A sign-in page is never read, on any site: a host with one of these labels in front
+#: of its registered domain (`login.example.com`, `accounts.google.co.in`) or starting
+#: with one of these prefixes (`secure-acs2ui.example.com`).
+SIGNIN_LABELS = frozenset(
+    {"login", "signin", "sign-in", "sso", "auth", "authn", "oauth", "account", "accounts",
+     "identity", "secure"}
+)  # fmt: skip
+SIGNIN_PREFIXES = (
+    "login-", "signin-", "static-login", "authentication", "authn-", "sso-", "secure-",
 )  # fmt: skip
 
 #: Never read, and not on the list because it cannot be taken off it.
@@ -112,6 +129,15 @@ def is_local(host: str) -> bool:
     return address.is_private or address.is_loopback or address.is_link_local
 
 
+def is_signin_host(host: str) -> bool:
+    """A host that exists to sign you in: `login.*`, `accounts.*`, `*.auth.*`, `id.*`."""
+    labels = host.lower().strip(".").split(".")
+    front = labels[:-2] or labels[:1]
+    if labels[0] == "id" and len(labels) > 2:
+        return True
+    return any(label in SIGNIN_LABELS or label.startswith(SIGNIN_PREFIXES) for label in front)
+
+
 def clean_domain(domain: str) -> str | None:
     """`https://www.Kite.com/login` -> `kite.com`. None if it is not a domain."""
     text = domain.strip().lower()
@@ -128,6 +154,9 @@ class BrowserConfig:
     enabled: bool = False
     deny: tuple[str, ...] = DEFAULT_DENY
     days: int = 365
+    #: Default entries this config has already been offered. A default added in a later
+    #: release is merged in once; one the person took off the list stays off.
+    seen: tuple[str, ...] = DEFAULT_DENY
 
     @classmethod
     def load(cls, home: Path) -> BrowserConfig:
@@ -140,6 +169,11 @@ class BrowserConfig:
             # Version 1 read only an allow-list; its deny list was extra. Moving to
             # "everything except", the defaults join whatever was denied before.
             listed = tuple(dict.fromkeys((*DEFAULT_DENY, *listed)))
+        else:
+            seen = {str(item).lower() for item in raw.get("defaults_seen") or ()}
+            # No record (a config from before it existed) means nothing was offered
+            # yet, so every missing default is added: failing closed on privacy.
+            listed = tuple(dict.fromkeys((*listed, *(d for d in DEFAULT_DENY if d not in seen))))
         return cls(
             enabled=bool(raw.get("enabled", True)),
             deny=listed,
@@ -154,13 +188,14 @@ class BrowserConfig:
             "enabled": self.enabled,
             "days": self.days,
             "deny": list(self.deny),
+            "defaults_seen": list(dict.fromkeys((*self.seen, *DEFAULT_DENY))),
         }
         path.write_text(yaml.safe_dump(payload, sort_keys=False), encoding="utf-8")
         return path
 
     def permits(self, host: str) -> bool:
         host = host.lower().removeprefix("www.")
-        if is_local(host):
+        if is_local(host) or is_signin_host(host):
             return False
         return not any(_host_matches(host, pattern) for pattern in self.deny)
 
@@ -168,11 +203,12 @@ class BrowserConfig:
         """This config with `domain` on the never-capture list."""
         if domain in self.deny:
             return self
-        return BrowserConfig(self.enabled, (*self.deny, domain), self.days)
+        return BrowserConfig(self.enabled, (*self.deny, domain), self.days, self.seen)
 
     def allowing(self, domain: str) -> BrowserConfig:
         """This config with `domain` taken off the never-capture list."""
-        return BrowserConfig(self.enabled, tuple(d for d in self.deny if d != domain), self.days)
+        kept = tuple(d for d in self.deny if d != domain)
+        return BrowserConfig(self.enabled, kept, self.days, self.seen)
 
 
 def _host_matches(host: str, pattern: str) -> bool:
@@ -234,7 +270,18 @@ def clean_url(url: str) -> str | None:
     parts = urlsplit(url)
     if parts.scheme not in {"http", "https"} or not parts.hostname:
         return None
+    if _WRAPPED_LINK.search(parts.path) or _SECRET_IN_PATH.search(parts.path):
+        return None  # a click-tracking redirect, or a token riding in the path
     return f"{parts.scheme}://{parts.hostname}{parts.path}".rstrip("/") or None
+
+
+#: `/L0/https:%2F%2Fother.site%2F...`: a link wrapped inside another link's path.
+_WRAPPED_LINK = re.compile(r"(?i)https?(?::|%3a)(?:/|%2f){2}")
+#: `...%26token=abc` or `/token=abc`: a credential-named parameter inside the path.
+_SECRET_IN_PATH = re.compile(
+    r"(?i)(?<![a-z])(?:token|secret|password|passwd|sig|signature|session|apikey|api_key|auth)"
+    r"(?:=|%3d)"
+)
 
 
 def _copy_database(source: Path) -> tuple[Path, Path]:

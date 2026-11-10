@@ -6,7 +6,8 @@ from uuid import uuid4
 
 import pytest
 
-from projectmind.sources.audit import audit
+from projectmind.sources.audit import audit, describe
+from projectmind.sources.browser import BrowserConfig
 from projectmind.storage import ChunkRecord, DocumentRecord, SqliteStore, Store
 
 
@@ -82,6 +83,42 @@ class TestAudit:
         add(store, "D:/Docs/VB. Passport.pdf", "text")
         audit(store)
         assert store.count_documents() == 1
+
+    def test_a_page_from_a_site_now_on_the_never_capture_list_is_found_and_removed(
+        self, store: Store
+    ) -> None:
+        add(store, "https://chatgpt.com/c/abc", "Interview plan", source_type="web")
+        add(store, "https://docs.python.org/3/library/re.html", "re docs", source_type="web")
+        browser = BrowserConfig(enabled=True)
+        report = audit(store, browser=browser)
+        assert report.refused_pages == ["https://chatgpt.com/c/abc"]
+        assert not report.clean
+        assert audit(store, fix=True, browser=browser).removed_documents == 1
+        assert store.get_document("https://chatgpt.com/c/abc") is None
+        assert store.get_document("https://docs.python.org/3/library/re.html") is not None
+
+    def test_a_wrapped_tracking_link_is_refused_even_without_a_config(self, store: Store) -> None:
+        add(
+            store,
+            "https://t.example.org/L0/https:%2F%2Fa.example.com%2Fx%3Ftoken=ab/1",
+            "Assessment",
+            source_type="web",
+        )
+        assert len(audit(store).refused_pages) == 1
+
+    def test_the_report_says_where_a_flagged_passage_is_without_showing_it(
+        self, store: Store
+    ) -> None:
+        add(store, "D:/p/forms.md", "My PAN is ABCDE1234F and I keep it.", "Fine text here.")
+        report = audit(store)
+        assert report.flagged_in == ["D:/p/forms.md"]
+        assert "ABCDE1234F" not in " ".join(report.flagged_in)
+
+    def test_a_long_address_is_shortened_for_display(self) -> None:
+        shown = describe("https://example.org/" + "a" * 200 + "?q=1")
+        assert shown.startswith("example.org/aaa")
+        assert len(shown) <= 70
+        assert "q=1" not in shown
 
     def test_urls_and_commit_links_are_not_judged_as_file_names(self, store: Store) -> None:
         add(

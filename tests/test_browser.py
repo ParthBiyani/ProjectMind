@@ -6,11 +6,13 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
+import yaml
 from typer.testing import CliRunner
 
 from projectmind.cli import app
 from projectmind.config import reset_settings
 from projectmind.sources.browser import (
+    DEFAULT_DENY,
     BrowserConfig,
     HistoryDatabase,
     clean_domain,
@@ -100,6 +102,16 @@ class TestUrls:
             == "https://docs.python.org/3/library/re.html"
         )
 
+    def test_a_link_wrapped_inside_a_tracking_path_is_not_a_page(self) -> None:
+        wrapped = (
+            "https://x.example.org/L0/https:%2F%2Fassess.example.com%2Fa%3Futm%3D1%26token=ab/1/xyz"
+        )
+        assert clean_url(wrapped) is None
+
+    def test_a_credential_in_the_path_is_not_kept(self) -> None:
+        assert clean_url("https://example.org/session=abc123/home") is None
+        assert clean_url("https://example.org/design=blue/home") is not None
+
     def test_only_web_pages_count(self) -> None:
         assert clean_url("file:///C:/secret.txt") is None
         assert clean_url("chrome://settings") is None
@@ -166,6 +178,51 @@ class TestNeverCaptureList:
     def test_a_site_taken_off_the_list_stays_off_after_saving(self, tmp_path: Path) -> None:
         BrowserConfig(enabled=True).allowing("linkedin.com").save(tmp_path)
         assert BrowserConfig.load(tmp_path).permits("www.linkedin.com")
+
+    def test_a_default_added_later_reaches_an_existing_config(self, tmp_path: Path) -> None:
+        # A version-2 config written before `claude.ai` was a default, with no record of
+        # which defaults it had been offered.
+        kept = [d for d in DEFAULT_DENY if d not in {"claude.ai", "chatgpt.com"}]
+        (tmp_path / "browser.yaml").write_text(
+            yaml.safe_dump({"version": 2, "enabled": True, "deny": kept}), encoding="utf-8"
+        )
+        loaded = BrowserConfig.load(tmp_path)
+        assert not loaded.permits("claude.ai")
+        assert not loaded.permits("chatgpt.com")
+
+    def test_a_default_taken_off_stays_off_across_releases(self, tmp_path: Path) -> None:
+        BrowserConfig(enabled=True).allowing("claude.ai").save(tmp_path)
+        assert BrowserConfig.load(tmp_path).permits("claude.ai")
+        # and a second save and load does not bring it back
+        BrowserConfig.load(tmp_path).save(tmp_path)
+        assert BrowserConfig.load(tmp_path).permits("claude.ai")
+
+    @pytest.mark.parametrize(
+        "host",
+        [
+            "login.nvidia.com",
+            "accounts.google.co.in",
+            "account.beardo.in",
+            "auth.docker.com",
+            "id.gw.postman.com",
+            "static-login.nvidia.com",
+            "x.auth.us-east-1.amazoncognito.com",
+            "secure-acs2ui-b1.example.com",
+            "authentication-session-manager.indeed.com",
+        ],
+    )
+    def test_a_sign_in_page_is_never_read_on_any_site(self, host: str) -> None:
+        assert not config(deny=()).permits(host)
+
+    @pytest.mark.parametrize(
+        "host", ["docs.python.org", "authors.elsevier.com", "idea.example.com", "github.com"]
+    )
+    def test_ordinary_sites_are_not_mistaken_for_sign_in_pages(self, host: str) -> None:
+        assert config(deny=()).permits(host)
+
+    def test_payment_gateways_and_email_trackers_are_on_the_list(self) -> None:
+        for host in ("secure-acs2ui.wibmo.com", "u1.ct.sendgrid.net", "x.awstrack.me"):
+            assert not config().permits(host), host
 
     def test_what_a_person_types_becomes_a_site_name(self) -> None:
         assert clean_domain("https://www.Kite.com/login?x=1") == "kite.com"

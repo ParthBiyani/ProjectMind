@@ -148,19 +148,26 @@ def audit_index(
 ) -> None:
     """Check what is already indexed against today's privacy rules.
 
-    Identity and financial documents, credentials and personal identifiers are
-    refused as files are read. This applies the same rules to what was indexed
-    before a rule existed. Without --fix it only reports.
+    Identity and financial documents, credentials, personal identifiers and sites
+    on the never-capture list are refused as they are read. This applies the same
+    rules to what was indexed before a rule existed. Without --fix it only reports.
     """
-    from projectmind.sources.audit import audit
+    from projectmind.sources.audit import audit, describe
+    from projectmind.sources.browser import BrowserConfig
 
     with service() as memory:
-        report = audit(memory.store, fix=fix)
+        report = audit(memory.store, fix=fix, browser=BrowserConfig.load(memory.settings.home))
     note(f"checked {report.documents_checked} documents and {report.chunks_checked} passages")
     for uri in report.sensitive_documents[:20]:
         fail(f"identity or financial document: {uri}")
+    if report.refused_pages:
+        fail(f"{len(report.refused_pages)} browser page(s) from sites that are never captured")
+        for uri in report.refused_pages[:20]:
+            note(f"  {describe(uri)}")
     if report.flagged_chunks:
         fail(f"{report.flagged_chunks} passage(s) contain a credential or personal identifier")
+        for uri in report.flagged_in[:20]:
+            note(f"  in {describe(uri)}")
     if report.clean:
         ok("nothing the rules would refuse")
         return
