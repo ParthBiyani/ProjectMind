@@ -51,7 +51,7 @@ set is `eval/real.example.yaml`.
 - **Grounded retrieval**: rarity-weighted coverage with an absolute floor, anchor terms,
   named-project preference, near-duplicate suppression, a hard 2,300-token budget.
 - **Optional semantic search** (`BAAI/bge-small-en-v1.5`, on CPU): a strict, calibrated bar
-  for automatic injection (cosine 0.78, near the best match, sharing a distinctive word)
+  for automatic injection (cosine 0.80, near the best match, sharing a distinctive word)
   and a generous explicit search where every result says whether it matched by words or
   by meaning.
 - **Claude Code integration**: a pre-prompt hook (thin client, ~150 ms) and an MCP server
@@ -196,7 +196,7 @@ Read from the environment and `~/.projectmind/.env` (never a project's `.env`).
 | `PROJECTMIND_AUTHORS` | git `user.email` | whose commits are yours |
 | `PROJECTMIND_HISTORY` | `full` | `full`, `minimal` or `off` |
 | `PROJECTMIND_SEMANTIC` | `false` | meaning search (`projectmind semantic enable`) |
-| `PROJECTMIND_SEMANTIC_THRESHOLD` | `0.78` | least cosine for an automatic meaning match |
+| `PROJECTMIND_SEMANTIC_THRESHOLD` | `0.80` | least cosine for an automatic meaning match |
 | `PROJECTMIND_EVIDENCE_COVERAGE_FLOOR` | `0.6` | how much of a question a passage must cover |
 | `PROJECTMIND_DAEMON_PORT` | `47615` | fixed so the extension can find it |
 

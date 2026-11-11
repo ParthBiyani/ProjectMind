@@ -82,8 +82,12 @@ class Settings(BaseSettings):
         description="Also match questions to passages by meaning (needs the [semantic] extra).",
     )
     semantic_threshold: float = Field(
-        default=0.78,
-        description="Least cosine similarity for a passage to be served on meaning alone.",
+        default=0.80,
+        description=(
+            "Least cosine similarity for a passage to be served on meaning alone. "
+            "Calibrated on 40 absent-topic questions: one leaks at 0.77, none from 0.78, "
+            "and hits only start to fall at 0.82, so 0.80 sits in the middle."
+        ),
     )
     semantic_needs_word: bool = Field(
         default=True,
