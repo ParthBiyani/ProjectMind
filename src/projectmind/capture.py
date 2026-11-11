@@ -15,6 +15,7 @@ stripped of query and fragment.
 from __future__ import annotations
 
 import hashlib
+from dataclasses import replace
 from datetime import UTC, datetime
 from typing import Any
 from urllib.parse import urlsplit
@@ -24,7 +25,7 @@ from projectmind.logging import get_logger
 from projectmind.service import MemoryService
 from projectmind.sources import chunking
 from projectmind.sources.browser import BrowserConfig, clean_domain, clean_url, is_local
-from projectmind.sources.secrets import contains_secret
+from projectmind.sources.secrets import scrub
 from projectmind.storage import ChunkRecord, DocumentRecord
 
 log = get_logger(__name__)
@@ -109,13 +110,20 @@ def handle_page(memory: MemoryService, event: dict[str, Any]) -> dict[str, Any]:
     if len(text) < MIN_TEXT_CHARS:
         return {"stored": False, "reason": "no readable text"}
     title = " ".join(str(event.get("title") or "").split())[:MAX_TITLE_CHARS] or url
+    cleaned_title = scrub(title)
+    if cleaned_title is None:
+        return {"stored": False, "reason": "the title looked like a credential"}
+    title = cleaned_title.text
 
-    chunks = [
-        chunk
-        for chunk in chunking.chunk_text(text)
-        if not contains_secret(f"{title}\n{chunk.text}")
-    ]
-    withheld = len(chunking.chunk_text(text)) - len(chunks)
+    chunks = []
+    withheld = redacted = 0
+    for chunk in chunking.chunk_text(text):
+        cleaned = scrub(chunk.text)
+        if cleaned is None:
+            withheld += 1
+            continue
+        redacted += int(cleaned.changed)
+        chunks.append(chunk if not cleaned.changed else replace(chunk, text=cleaned.text))
     if not chunks:
         return {"stored": False, "reason": "everything looked like a credential"}
 
@@ -149,7 +157,7 @@ def handle_page(memory: MemoryService, event: dict[str, Any]) -> dict[str, Any]:
     ]
     memory.store.replace_document(document, records)
     log.info("page captured", extra={"host": host, "chunks": len(records), "explicit": explicit})
-    return {"stored": True, "chunks": len(records), "withheld": withheld}
+    return {"stored": True, "chunks": len(records), "withheld": withheld, "redacted": redacted}
 
 
 def handle_tabs(memory: MemoryService, event: dict[str, Any]) -> dict[str, Any]:
@@ -166,15 +174,15 @@ def handle_tabs(memory: MemoryService, event: dict[str, Any]) -> dict[str, Any]:
         if url is None or not config.permits(urlsplit(url).hostname or ""):
             continue
         title = " ".join(str(tab.get("title") or "").split())[:MAX_TITLE_CHARS] or url
-        lines.append(f"{title} - {url}")
+        cleaned = scrub(f"{title} - {url}")
+        if cleaned is not None:
+            lines.append(cleaned.text)
 
     if not lines:
         memory.store.delete_document(TABS_URI)
         return {"stored": False, "reason": "no readable tabs open"}
 
     body = "Open in the browser now:\n" + "\n".join(lines)
-    if contains_secret(body):
-        return {"stored": False, "reason": "looked like a credential"}
     fingerprint = hashlib.sha1(body.encode("utf-8"), usedforsecurity=False).hexdigest()
     if memory.store.document_hashes(ROOT_KEY).get(TABS_URI) == fingerprint:
         return {"stored": False, "reason": "unchanged"}

@@ -41,7 +41,7 @@ import yaml
 
 from projectmind.logging import get_logger
 from projectmind.sources.models import SourceChunk
-from projectmind.sources.secrets import contains_secret
+from projectmind.sources.secrets import scrub
 from projectmind.storage import ChunkRecord, DocumentRecord, Store
 
 log = get_logger(__name__)
@@ -420,9 +420,16 @@ class BrowserReport:
         )
 
 
-def _holds_secret(page: Page) -> bool:
-    chunk = page_chunk(page)
-    return contains_secret(f"{chunk.heading}\n{chunk.text}")
+def _sanitised(page: Page) -> Page | None:
+    """The page with credentials replaced in its title and searches, or None if unsalvageable."""
+    title = scrub(page.title)
+    address = scrub(page.url)
+    queries = [scrub(query) for query in page.queries]
+    if title is None or address is None or address.changed or any(q is None for q in queries):
+        return None
+    page.title = title.text
+    page.queries = [q.text for q in queries if q is not None]
+    return page
 
 
 def index_history(
@@ -459,9 +466,10 @@ def index_history(
 
     # The same credential scan the file reader applies: a page that trips it is not
     # indexed, and one indexed earlier leaves with the other pages no longer allowed.
-    for url in [u for u, p in merged.items() if _holds_secret(p)]:
-        del merged[url]
-        report.withheld += 1
+    for url in list(merged):
+        if _sanitised(merged[url]) is None:
+            del merged[url]
+            report.withheld += 1
 
     report.pages = len(merged)
     report.with_queries = sum(1 for page in merged.values() if page.queries)

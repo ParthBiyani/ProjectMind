@@ -205,7 +205,7 @@ class TestScan:
         assert store.search_chunks(["should", "never", "read"]) == []
         assert store.search_chunks(["Zx81qLmN04aBc9QrTuV2wXy"]) == []
 
-    def test_a_chunk_holding_a_credential_is_dropped_whole(
+    def test_a_credential_is_redacted_and_the_rest_of_the_chunk_stays(
         self, store: Store, tmp_path: Path
     ) -> None:
         root = RootConfig(path=tmp_path / "r", depth=0)
@@ -214,8 +214,10 @@ class TestScan:
             "# Setup\n\nUse the gateway. The key is token: ghp_" + "aB3dE6gH9" * 4 + " keep it.\n",
         )
         report = KnowledgeIndexer(store).scan_root(root)
-        assert report.withheld >= 1
-        assert store.search_chunks(["gateway"]) == []
+        assert report.redacted == 1
+        assert store.search_chunks(["ghp_" + "aB3dE6gH9" * 4]) == []
+        [hit] = store.search_chunks(["gateway"])
+        assert "[REDACTED:token]" in hit.chunk.text
 
     def test_an_unchanged_tree_is_not_reindexed(self, store: Store, tmp_path: Path) -> None:
         root = build_root(tmp_path)

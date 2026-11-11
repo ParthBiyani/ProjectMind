@@ -102,7 +102,7 @@ class TestPages:
         assert result["stored"] is False
         assert "off" in str(result["reason"])
 
-    def test_a_chunk_that_looks_like_a_credential_is_dropped(self, memory: MemoryService) -> None:
+    def test_a_credential_in_a_page_is_redacted_not_stored(self, memory: MemoryService) -> None:
         secret = "token: ghp_" + "aB3dE6gH9" * 4
         # The page body is longer than one chunk, so the secret sits in a chunk of its own.
         result = handle_page(
@@ -110,8 +110,22 @@ class TestPages:
             page(text=f"Setup notes for the gateway. {secret} keep it.\n\n" + PAGE * 8),
         )
         assert result["stored"] is True
-        assert result["withheld"] >= 1
+        assert result["redacted"] >= 1
         assert memory.store.search_chunks(["ghp"]) == []
+        [hit] = memory.store.search_chunks(["gateway"])
+        assert "[REDACTED:token]" in hit.chunk.text
+
+    def test_login_details_pasted_in_a_chat_are_redacted(self, memory: MemoryService) -> None:
+        text = (
+            "I cannot sign in to the vendor portal. My login is ann@example.org and my "
+            "password is Tr0ub4dor&3, but it says the account is locked. What should I do next? "
+            "I already tried resetting it twice from the settings page without any luck."
+        )
+        assert handle_page(memory, page(text=text))["stored"] is True
+        assert memory.store.search_chunks(["Tr0ub4dor"]) == []
+        [hit] = memory.store.search_chunks(["locked"])
+        assert "[REDACTED:password]" in hit.chunk.text
+        assert "ann@example.org" not in hit.chunk.text
 
     def test_text_is_cut_to_the_size_limit(self, memory: MemoryService) -> None:
         handle_page(memory, page(text=("word " * 40_000)))

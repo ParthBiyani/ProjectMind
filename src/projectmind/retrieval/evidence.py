@@ -388,7 +388,9 @@ def render_found(found: Found) -> str:
     """A result as text: how it was found, where it is from, and the passage."""
     how = "by words" if found.via == "words" else f"by meaning, similarity {found.similarity:.2f}"
     item = found.evidence
-    return f"[{how}] {item.citation}\n{item.excerpt}"
+    from projectmind.sources.secrets import redact_text
+
+    return redact_text(f"[{how}] {item.citation}\n{item.excerpt}")
 
 
 class EvidenceRetriever:

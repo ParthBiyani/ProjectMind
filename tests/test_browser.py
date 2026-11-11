@@ -353,7 +353,7 @@ class TestIndexing:
         assert again.indexed == 1
         assert store.get_document(doc.uri).title == "SQLite FTS5 Extension"  # type: ignore[union-attr]
 
-    def test_a_page_that_looks_like_a_credential_is_withheld_and_removed(
+    def test_a_credential_in_a_title_is_redacted_before_it_is_indexed(
         self, store: Store, tmp_path: Path
     ) -> None:
         fake = FakeBrowser(tmp_path / "H")
@@ -365,9 +365,10 @@ class TestIndexing:
         )
         database = fake.done()
         report = index_history(store, config(), databases=[database], now=NOW)
-        assert (report.indexed, report.withheld) == (1, 1)
-        assert "withheld" in report.summary()
-        assert [d.uri for d in store.list_documents()] == ["https://docs.example.org/guide"]
+        assert (report.indexed, report.withheld) == (2, 0)
+        titles = {d.uri: d.title for d in store.list_documents()}
+        assert titles["https://app.example.org/home"] == "Dashboard api_key=[REDACTED:secret]"
+        assert store.search_chunks(["Zx81qLmN04aBc9QrTuV2wXy"]) == []
 
     def test_nothing_from_a_listed_site_is_stored(self, store: Store, tmp_path: Path) -> None:
         index_history(store, config(), databases=[self.make(tmp_path)], now=NOW)

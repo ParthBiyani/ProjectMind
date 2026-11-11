@@ -101,6 +101,8 @@ def _render(reports: list[ScanReport]) -> None:
     rendered = table("folder", "indexed", "unchanged", "recent", "removed", "chunks", "note")
     for report in reports:
         details = report.error or ", ".join(f"{n} {kind}" for kind, n in report.by_type.items())
+        if report.redacted:
+            details += f"; {report.redacted} chunk(s) had credentials redacted"
         if report.withheld:
             details += f"; {report.withheld} chunk(s) withheld as credentials"
         if report.failed:
