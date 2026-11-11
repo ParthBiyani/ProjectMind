@@ -10,3 +10,5 @@ from __future__ import annotations
 import subprocess
 
 NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+#: Background work that should not compete with the prompt you are waiting on.
+LOW_PRIORITY = getattr(subprocess, "BELOW_NORMAL_PRIORITY_CLASS", 0)
