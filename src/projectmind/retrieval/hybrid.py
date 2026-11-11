@@ -33,6 +33,7 @@ from projectmind.config import Settings, get_settings
 from projectmind.gate.rules import GateDecision
 from projectmind.logging import get_logger
 from projectmind.models import EpisodicRecord, Fingerprint, Project, ServedRecord, TaskType
+from projectmind.retrieval.evidence import question_terms
 from projectmind.retrieval.lexical import BM25Index
 from projectmind.retrieval.ranking import (
     Candidate,
@@ -273,7 +274,12 @@ class HybridRetriever:
         means anything, but "90% as good as the best lexical match" and "90% as
         good as the best semantic match" do.
         """
-        lexical = BM25Index.build(pool).search(query, limit=PER_RETRIEVER)
+        index = BM25Index.build(pool)
+        lexical = index.search(query, limit=PER_RETRIEVER)
+        floor = self.settings.record_coverage_floor
+        if floor > 0.0:
+            terms = question_terms(query)
+            lexical = [hit for hit in lexical if index.coverage(terms, hit.record_id) >= floor]
         vector = self._vector_search(pool, query, limit=PER_RETRIEVER)
 
         best_vector = max((score for _, score in vector), default=0.0)

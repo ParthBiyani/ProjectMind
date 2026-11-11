@@ -58,6 +58,16 @@ class Settings(BaseSettings):
         ),
     )
 
+    record_coverage_floor: float = Field(
+        default=0.07,
+        description=(
+            "A history record is served only if its words cover at least this share of the "
+            "question's distinctive terms (weighted by rarity). Scores are otherwise relative "
+            "to the best candidate, so a lone record that shares one generic word with the "
+            "question can read as a perfect match. 0.07 is the middle of the 0.06-0.08 range "
+            "that passes every synthetic target (fitted on that set; 0 turns the rule off)."
+        ),
+    )
     max_prompt_chars: int = Field(
         default=20_000,
         description=(
