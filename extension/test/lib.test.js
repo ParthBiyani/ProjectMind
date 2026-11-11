@@ -33,6 +33,38 @@ test('permits: nothing is read before the list has arrived', () => {
   assert.ok(PM.permits('github.com', []));
 });
 
+test('isSigninHost: sign-in hosts on any site, ordinary hosts untouched', () => {
+  for (const host of ['login.nvidia.com', 'accounts.google.co.in', 'auth.openai.com',
+    'id.gw.postman.com', 'static-login.nvidia.com', 'x.auth.us-east-1.amazoncognito.com',
+    'secure-acs2ui.example.com']) {
+    assert.ok(PM.isSigninHost(host), host);
+    assert.ok(!PM.permits(host, []), host);
+  }
+  for (const host of ['docs.python.org', 'authors.elsevier.com', 'idea.example.com', 'github.com']) {
+    assert.ok(!PM.isSigninHost(host), host);
+  }
+});
+
+test('permitsPage: chat sites are read only on conversation pages', () => {
+  const ok = [
+    'https://chatgpt.com/c/6aed6b58-9460-83ee-9522-e304a2b11a4a',
+    'https://chatgpt.com/g/g-abc123/c/6aed6b58-9460',
+    'https://claude.ai/chat/9b5896fb-3215-4457-a75c-77380226863f',
+    'https://gemini.google.com/app/1a2b3c4d5e6f',
+  ];
+  const no = [
+    'https://chatgpt.com/', 'https://chatgpt.com/auth/login', 'https://chatgpt.com/settings',
+    'https://claude.ai/login', 'https://claude.ai/settings/billing', 'https://claude.ai/upgrade',
+    'https://auth.openai.com/log-in', 'https://gemini.google.com/app',
+  ];
+  for (const url of ok) assert.ok(PM.permitsPage(url, DENY), url);
+  for (const url of no) assert.ok(!PM.permitsPage(url, DENY), url);
+  assert.ok(!PM.permitsPage('https://claude.ai/chat/9b5896fb-3215', ['claude.ai']));
+  assert.ok(!PM.permitsPage('https://claude.ai/chat/9b5896fb-3215', undefined));
+  assert.ok(!PM.permitsPage('not a url', DENY));
+  assert.ok(PM.permitsPage('https://docs.python.org/3/', DENY));
+});
+
 test('permits: this machine and the local network are never read', () => {
   for (const host of ['localhost', '127.0.0.1', '192.168.1.5', '10.0.0.2', '172.20.1.1',
     '169.254.0.1', 'router', 'nas.local', 'app.localhost', '[::1]']) {

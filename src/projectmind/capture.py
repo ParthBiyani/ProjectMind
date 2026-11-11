@@ -105,6 +105,8 @@ def handle_page(memory: MemoryService, event: dict[str, Any]) -> dict[str, Any]:
         return {"stored": False, "reason": "pages on this machine or network are never read"}
     if not config.permits(host):
         return {"stored": False, "reason": "the site is on the never-capture list"}
+    if not config.permits_page(url):
+        return {"stored": False, "reason": "chat sites are read only on conversation pages"}
 
     text = str(event.get("text") or "")[:MAX_TEXT_CHARS].strip()
     if len(text) < MIN_TEXT_CHARS:
@@ -171,7 +173,7 @@ def handle_tabs(memory: MemoryService, event: dict[str, Any]) -> dict[str, Any]:
         if not isinstance(tab, dict):
             continue
         url = clean_url(str(tab.get("url") or ""))
-        if url is None or not config.permits(urlsplit(url).hostname or ""):
+        if url is None or not config.permits_page(url):
             continue
         title = " ".join(str(tab.get("title") or "").split())[:MAX_TITLE_CHARS] or url
         cleaned = scrub(f"{title} - {url}")

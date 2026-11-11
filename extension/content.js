@@ -24,7 +24,7 @@
 
   async function allowedHere() {
     const { deny, paused } = await chrome.storage.local.get(['deny', 'paused']);
-    return !paused && PM.permits(location.hostname, deny);
+    return !paused && PM.permitsPage(location.href, deny);
   }
 
   async function send() {

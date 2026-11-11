@@ -135,7 +135,7 @@ class TestNeverCaptureList:
             "fyers.com",
             "netbanking.hdfcbank.com",
             "accounts.google.com",
-            "claude.ai",
+            "paypal.com",
         ):
             assert not cfg.permits(host), host
 
@@ -180,22 +180,22 @@ class TestNeverCaptureList:
         assert BrowserConfig.load(tmp_path).permits("www.linkedin.com")
 
     def test_a_default_added_later_reaches_an_existing_config(self, tmp_path: Path) -> None:
-        # A version-2 config written before `claude.ai` was a default, with no record of
+        # A version-2 config written before `wibmo.com` was a default, with no record of
         # which defaults it had been offered.
-        kept = [d for d in DEFAULT_DENY if d not in {"claude.ai", "chatgpt.com"}]
+        kept = [d for d in DEFAULT_DENY if d not in {"wibmo.com", "juspay.in"}]
         (tmp_path / "browser.yaml").write_text(
             yaml.safe_dump({"version": 2, "enabled": True, "deny": kept}), encoding="utf-8"
         )
         loaded = BrowserConfig.load(tmp_path)
-        assert not loaded.permits("claude.ai")
-        assert not loaded.permits("chatgpt.com")
+        assert not loaded.permits("secure.wibmo.com")
+        assert not loaded.permits("api.juspay.in")
 
     def test_a_default_taken_off_stays_off_across_releases(self, tmp_path: Path) -> None:
-        BrowserConfig(enabled=True).allowing("claude.ai").save(tmp_path)
-        assert BrowserConfig.load(tmp_path).permits("claude.ai")
+        BrowserConfig(enabled=True).allowing("paypal.com").save(tmp_path)
+        assert BrowserConfig.load(tmp_path).permits("paypal.com")
         # and a second save and load does not bring it back
         BrowserConfig.load(tmp_path).save(tmp_path)
-        assert BrowserConfig.load(tmp_path).permits("claude.ai")
+        assert BrowserConfig.load(tmp_path).permits("paypal.com")
 
     @pytest.mark.parametrize(
         "host",
@@ -223,6 +223,95 @@ class TestNeverCaptureList:
     def test_payment_gateways_and_email_trackers_are_on_the_list(self) -> None:
         for host in ("secure-acs2ui.wibmo.com", "u1.ct.sendgrid.net", "x.awstrack.me"):
             assert not config().permits(host), host
+
+    CONVERSATIONS = (
+        "https://chatgpt.com/c/6aed6b58-9460-83ee-9522-e304a2b11a4a",
+        "https://chatgpt.com/c/local-chatgpt%3Abe24e543-6b5a-4782-82f5-bc1eef289b5b",
+        "https://chatgpt.com/g/g-abc123/c/6aed6b58-9460",
+        "https://chatgpt.com/share/6aed6b58-9460-83ee",
+        "https://chat.openai.com/c/6aed6b58-9460",
+        "https://claude.ai/chat/9b5896fb-3215-4457-a75c-77380226863f",
+        "https://claude.ai/share/9b5896fb-3215",
+        "https://gemini.google.com/app/1a2b3c4d5e6f",
+    )
+    NOT_CONVERSATIONS = (
+        "https://chatgpt.com",
+        "https://chatgpt.com/",
+        "https://chatgpt.com/auth/login",
+        "https://chatgpt.com/#pricing",
+        "https://chatgpt.com/settings",
+        "https://chatgpt.com/c",
+        "https://claude.ai/login",
+        "https://claude.ai/settings/billing",
+        "https://claude.ai/upgrade",
+        "https://claude.ai/new",
+        "https://claude.ai/chat/abc/extra/segments",
+        "https://auth.openai.com/log-in",
+        "https://platform.openai.com/settings/organization/billing",
+        "https://gemini.google.com/app",
+        "https://gemini.google.com/settings",
+        "https://accounts.google.com/signin",
+    )
+
+    def test_chat_sites_are_read_but_only_their_conversations(self) -> None:
+        cfg = config()
+        for url in self.CONVERSATIONS:
+            assert cfg.permits_page(url), url
+        for url in self.NOT_CONVERSATIONS:
+            assert not cfg.permits_page(url), url
+
+    def test_other_sites_are_unaffected_by_the_chat_rule(self) -> None:
+        cfg = config()
+        assert cfg.permits_page("https://docs.python.org/3/library/re.html")
+        assert not cfg.permits_page("https://mail.google.com/mail/u/0")
+
+    def test_a_person_can_still_deny_a_chat_site_outright(self) -> None:
+        cfg = config().denying("claude.ai")
+        assert not cfg.permits_page("https://claude.ai/chat/9b5896fb-3215")
+        assert cfg.permits_page("https://chatgpt.com/c/6aed6b58-9460")
+
+    def test_an_old_config_that_denied_chat_sites_by_default_is_moved_on_once(
+        self, tmp_path: Path
+    ) -> None:
+        old = [d for d in DEFAULT_DENY] + ["claude.ai", "chatgpt.com", "chat.openai.com"]
+        old += ["gemini.google.com", "paypal.com"]
+        (tmp_path / "browser.yaml").write_text(
+            yaml.safe_dump(
+                {"version": 2, "enabled": True, "deny": old, "defaults_seen": list(DEFAULT_DENY)}
+            ),
+            encoding="utf-8",
+        )
+        loaded = BrowserConfig.load(tmp_path)
+        assert loaded.permits_page("https://claude.ai/chat/9b5896fb-3215")
+        assert not loaded.permits_page("https://claude.ai/settings")
+        assert not loaded.permits("paypal.com")
+        # and once saved as version 3, denying a chat site again is respected, not undone
+        loaded.denying("claude.ai").save(tmp_path)
+        assert not BrowserConfig.load(tmp_path).permits_page("https://claude.ai/chat/9b5896fb-3215")
+
+    def test_the_javascript_rule_agrees_with_this_one(self) -> None:
+        import json
+        import shutil
+        import subprocess
+
+        if shutil.which("node") is None:
+            pytest.skip("node is not installed")
+        urls = [*self.CONVERSATIONS, *self.NOT_CONVERSATIONS, "https://docs.python.org/3/"]
+        deny = list(config().deny)
+        script = (
+            "const PM = require(process.argv[1]);"
+            "const urls = JSON.parse(process.argv[2]); const deny = JSON.parse(process.argv[3]);"
+            "console.log(JSON.stringify(urls.map((u) => PM.permitsPage(u, deny))));"
+        )
+        lib = str(Path(__file__).resolve().parents[1] / "extension" / "lib.js")
+        run = subprocess.run(
+            ["node", "-e", script, lib, json.dumps(urls), json.dumps(deny)],
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=60,
+        )
+        assert json.loads(run.stdout) == [config().permits_page(u) for u in urls]
 
     def test_what_a_person_types_becomes_a_site_name(self) -> None:
         assert clean_domain("https://www.Kite.com/login?x=1") == "kite.com"

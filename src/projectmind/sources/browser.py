@@ -47,7 +47,7 @@ from projectmind.storage import ChunkRecord, DocumentRecord, Store
 log = get_logger(__name__)
 
 CONFIG_FILE = "browser.yaml"
-CONFIG_VERSION = 2
+CONFIG_VERSION = 3
 #: Bump when what is stored for a page changes (title cleaning, credential scan), so pages
 #: read under the old rules are read again once rather than kept as they were.
 PAGE_RULES = 2
@@ -90,8 +90,6 @@ DEFAULT_DENY = (
     # cloud consoles (keys and bills)
     "console.aws.amazon.com", "portal.azure.com", "console.cloud.google.com",
     "dashboard.render.com", "vercel.com",
-    # AI chats (private conversations)
-    "claude.ai", "chatgpt.com", "chat.openai.com", "gemini.google.com",
     # health
     "practo.com", "1mg.com", "pharmeasy.in", "apollo247.com",
     # shopping and orders
@@ -99,10 +97,40 @@ DEFAULT_DENY = (
     "blinkit.com", "zeptonow.com", "bigbasket.com",
     # card-verification and payment gateways, identity partners, throwaway mail
     "wibmo.com", "juspay.in", "meon.co.in", "temp-mail.org",
+    # AI provider consoles: API keys and billing (the chat apps themselves are read)
+    "platform.openai.com", "console.anthropic.com", "platform.claude.com",
     # email click-tracking and campaign redirects (their links carry tokens)
     "sendgrid.net", "awstrack.me", "emailshot.io", "list-manage.com", "mandrillapp.com",
     "mailgun.org", "hubspotlinks.com",
 )  # fmt: skip
+
+#: AI chat sites were once denied outright. They are now read, but only their conversation
+#: pages (see CHAT_SITES): sign-in, settings, billing and every other page stay unread.
+#: Configs written before this moved on drop these entries once, on first load.
+RETIRED_DENY = frozenset({"claude.ai", "chatgpt.com", "chat.openai.com", "gemini.google.com"})
+
+#: Where a conversation lives on each chat site. On these sites nothing else is read: a
+#: login, account, settings, upgrade or payment page never matches. Mirrored in
+#: extension/lib.js (a test keeps the two in agreement).
+CHAT_SITES: dict[str, tuple[re.Pattern[str], ...]] = {
+    "chatgpt.com": (
+        re.compile(r"^/c/[\w%.:~-]+$"),
+        re.compile(r"^/g/[\w%.:~-]+/c/[\w%.:~-]+$"),
+        re.compile(r"^/share/[\w%.:~-]+$"),
+    ),
+    "chat.openai.com": (
+        re.compile(r"^/c/[\w%.:~-]+$"),
+        re.compile(r"^/share/[\w%.:~-]+$"),
+    ),
+    "claude.ai": (
+        re.compile(r"^/chat/[\w%.:~-]+$"),
+        re.compile(r"^/share/[\w%.:~-]+$"),
+    ),
+    "gemini.google.com": (
+        re.compile(r"^/app/[\w%.:~-]+$"),
+        re.compile(r"^/share/[\w%.:~-]+$"),
+    ),
+}
 
 #: A sign-in page is never read, on any site: a host with one of these labels in front
 #: of its registered domain (`login.example.com`, `accounts.google.co.in`) or starting
@@ -178,6 +206,8 @@ class BrowserConfig:
             # No record (a config from before it existed) means nothing was offered
             # yet, so every missing default is added: failing closed on privacy.
             listed = tuple(dict.fromkeys((*listed, *(d for d in DEFAULT_DENY if d not in seen))))
+        if int(raw.get("version", 1)) < 3:
+            listed = tuple(entry for entry in listed if entry not in RETIRED_DENY)
         return cls(
             enabled=bool(raw.get("enabled", True)),
             deny=listed,
@@ -203,6 +233,15 @@ class BrowserConfig:
             return False
         return not any(_host_matches(host, pattern) for pattern in self.deny)
 
+    def permits_page(self, url: str) -> bool:
+        """Whether this page may be read: its site is allowed, and on a chat site it is a
+        conversation (never the login, settings or billing pages of that site)."""
+        parts = urlsplit(url)
+        host = (parts.hostname or "").lower().removeprefix("www.")
+        if not self.permits(host):
+            return False
+        return chat_path_allowed(host, parts.path)
+
     def denying(self, domain: str) -> BrowserConfig:
         """This config with `domain` on the never-capture list."""
         if domain in self.deny:
@@ -213,6 +252,15 @@ class BrowserConfig:
         """This config with `domain` taken off the never-capture list."""
         kept = tuple(d for d in self.deny if d != domain)
         return BrowserConfig(self.enabled, kept, self.days, self.seen)
+
+
+def chat_path_allowed(host: str, path: str) -> bool:
+    """True for any site that is not a chat site; for one, only for a conversation page."""
+    clean = path.rstrip("/") or "/"
+    for site, patterns in CHAT_SITES.items():
+        if _host_matches(host, site):
+            return any(pattern.match(clean) for pattern in patterns)
+    return True
 
 
 def _host_matches(host: str, pattern: str) -> bool:
@@ -355,8 +403,7 @@ def _read(connection: sqlite3.Connection, config: BrowserConfig, since: datetime
         cleaned = clean_url(row["url"])
         if cleaned is None:
             continue
-        host = urlsplit(cleaned).hostname or ""
-        if not config.permits(host):
+        if not config.permits_page(cleaned):
             continue
         page = pages.get(cleaned)
         if page is None:

@@ -87,14 +87,14 @@ class TestAudit:
     def test_a_page_from_a_site_now_on_the_never_capture_list_is_found_and_removed(
         self, store: Store
     ) -> None:
-        add(store, "https://chatgpt.com/c/abc", "Interview plan", source_type="web")
+        add(store, "https://mail.google.com/mail/u/0", "Inbox", source_type="web")
         add(store, "https://docs.python.org/3/library/re.html", "re docs", source_type="web")
         browser = BrowserConfig(enabled=True)
         report = audit(store, browser=browser)
-        assert report.refused_pages == ["https://chatgpt.com/c/abc"]
+        assert report.refused_pages == ["https://mail.google.com/mail/u/0"]
         assert not report.clean
         assert audit(store, fix=True, browser=browser).removed_documents == 1
-        assert store.get_document("https://chatgpt.com/c/abc") is None
+        assert store.get_document("https://mail.google.com/mail/u/0") is None
         assert store.get_document("https://docs.python.org/3/library/re.html") is not None
 
     def test_the_open_tabs_list_is_not_mistaken_for_a_page(self, store: Store) -> None:

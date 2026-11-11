@@ -89,4 +89,4 @@ def _refused_page(uri: str, browser: BrowserConfig | None) -> bool:
         return True
     if browser is None:
         return False
-    return not browser.permits(urlsplit(uri).hostname or "")
+    return not browser.permits_page(uri)
