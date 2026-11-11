@@ -4,6 +4,7 @@ import functools
 import json
 import tempfile
 from collections.abc import Iterator
+from datetime import UTC, datetime
 from pathlib import Path
 from uuid import UUID, uuid4
 
@@ -18,6 +19,7 @@ from projectmind.evaluation.fixtures import FixtureCorpus
 from projectmind.evaluation.live import load_corpus
 from projectmind.service import MemoryService
 from projectmind.storage import HistoryFilter, SqliteStore, open_store
+from projectmind.storage.base import BundleLogEntry, aggregate_usage
 
 runner = CliRunner()
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -201,6 +203,30 @@ class TestHistoryCommands:
         assert "asked" in result.stdout
         assert "candidates" in result.stdout
         assert "served" in result.stdout
+
+    def test_passage_tokens_count_in_the_list_the_detail_and_the_report(self, home: Path) -> None:
+        entry = BundleLogEntry(
+            bundle_id=uuid4(),
+            created_at=datetime.now(UTC),
+            project_key="demo",
+            task_type="implement",
+            prompt_hash="h",
+            prompt_words=3,
+            profile_tokens=10,
+            episodic_tokens=20,
+            evidence_tokens=300,
+            injected=True,
+            prompt_text="why did we drop the column",
+        )
+        with live_store() as store:
+            store.log_bundle(entry)
+            assert aggregate_usage([entry]).total_evidence_tokens == 300
+            assert entry.total_tokens == 330
+        listed = runner.invoke(app, ["history", "list"])
+        assert "330" in listed.stdout
+        shown = runner.invoke(app, ["history", "show", str(entry.bundle_id)[:8]])
+        assert "answered 330 tokens" in shown.stdout
+        assert "330" in runner.invoke(app, ["report"]).stdout
 
     def test_an_unknown_id_is_a_clean_error(self, home: Path) -> None:
         result = runner.invoke(app, ["history", "show", str(uuid4())])

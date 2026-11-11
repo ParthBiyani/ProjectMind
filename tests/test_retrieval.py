@@ -98,6 +98,43 @@ class TestBM25:
         assert "scikit-learn" in tokens
 
 
+class TestCoverage:
+    """How much of the question's distinctive vocabulary a record contains, by rarity."""
+
+    def test_a_record_with_every_distinctive_term_covers_the_question(self) -> None:
+        records = [record("Imputed missing lab values with the median"), record("Adopted Supabase")]
+        index = BM25Index.build(records)
+        assert index.coverage(["missing", "lab", "values"], records[0].id) == pytest.approx(1.0)
+        assert index.coverage(["missing", "lab", "values"], records[1].id) == 0.0
+
+    def test_matching_one_common_word_beside_unseen_ones_scores_low(self) -> None:
+        """The false injection from the audit: "dataset" was the only shared word."""
+        records = [
+            record("Labelled the dataset in Roboflow", entities=["dataset"]),
+            record("Exported the dataset to YOLO format", entities=["dataset"]),
+            record("Split the dataset by patient", entities=["dataset"]),
+        ]
+        index = BM25Index.build(records)
+        terms = ["missing", "lab", "values", "dataset"]
+        assert index.coverage(terms, records[0].id) < 0.2
+
+    def test_a_rare_term_outweighs_a_common_one(self) -> None:
+        records = [record("alpha beta"), record("alpha gamma"), record("alpha delta")]
+        index = BM25Index.build(records)
+        rare = index.coverage(["alpha", "beta"], records[0].id)
+        common_only = index.coverage(["alpha", "beta"], records[1].id)
+        assert rare > common_only > 0.0
+
+    def test_hyphenated_names_match_by_their_parts(self) -> None:
+        records = [record("Used walk-forward validation")]
+        index = BM25Index.build(records)
+        assert index.coverage(["walk", "forward"], records[0].id) == pytest.approx(1.0)
+
+    def test_an_empty_question_covers_nothing(self) -> None:
+        records = [record("anything")]
+        assert BM25Index.build(records).coverage([], records[0].id) == 0.0
+
+
 class TestRanking:
     def _candidate(self, project: Project, **overrides: object) -> Candidate:
         return Candidate(record=record("x", project_id=project.id, **overrides), project=project)
@@ -344,3 +381,45 @@ class TestPhaseFourTargets:
     def test_budgets_still_hold(self, phase_four: ScoreReport) -> None:
         assert phase_four.budget_violations == 0
         assert phase_four.max_total_tokens <= 2300
+
+
+class TestRecordCoverageFloor:
+    def _retrieve(self, floor: float) -> list[str]:
+        settings = Settings(
+            home=Path(tempfile.gettempdir()) / "projectmind-retrieval-tests",
+            record_coverage_floor=floor,
+        )
+        backend = SqliteStore(":memory:")
+        backend.migrate()
+        project = backend.upsert_project(
+            Project(key="p", name="P", fingerprint=Fingerprint(languages=["python"]))
+        )
+        embedder = HashingEmbedder()
+        generic = record(
+            "Labelled the images in Roboflow and exported YOLO format",
+            project_id=project.id,
+            entities=["dataset"],
+            confidence=0.9,
+        )
+        backend.add_records(
+            [
+                generic.model_copy(
+                    update={"embedding": tuple(embedder.embed([generic.searchable_text])[0])}
+                )
+            ]
+        )
+        analysis = classify(
+            "How should I deal with the missing lab values in this dataset?", vocabulary=["dataset"]
+        )
+        decision = decide(analysis, fingerprint=project.fingerprint, episodic_available=True)
+        served = HybridRetriever(backend, settings, embedder=embedder).retrieve(
+            decision, project=project, fingerprint=project.fingerprint, limit=5, now=NOW
+        )
+        backend.close()
+        return [item.what for item in served]
+
+    def test_a_record_sharing_only_one_generic_word_is_not_served(self) -> None:
+        assert self._retrieve(floor=0.07) == []
+
+    def test_with_the_rule_off_the_same_record_is_served(self) -> None:
+        assert self._retrieve(floor=0.0) != []

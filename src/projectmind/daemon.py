@@ -26,6 +26,7 @@ import json
 import os
 import secrets
 import socket
+import subprocess
 import sys
 import threading
 from collections.abc import Callable
@@ -39,8 +40,8 @@ from projectmind import __version__, capture
 from projectmind.config import Settings
 from projectmind.hook_entry import BUNDLE_HEADER, DAEMON_FILE, prepare_reply, read_event
 from projectmind.logging import get_logger
+from projectmind.process import LOW_PRIORITY, NO_WINDOW
 from projectmind.service import MemoryService
-from projectmind.storage import open_store
 from projectmind.web.api import UI_HEADERS, WebApi, static_file
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -50,6 +51,9 @@ log = get_logger(__name__)
 
 TOKEN_FILE = "daemon.token"
 MAX_BODY_BYTES = 4_000_000
+#: A scan or an embedding pass that takes longer than this is stuck, not slow.
+SYNC_TIMEOUT_SECONDS = 3 * 3600.0
+EMBED_TIMEOUT_SECONDS = 3 * 3600.0
 
 #: First background sync waits this long after start-up, so logging in is not slowed.
 FIRST_SYNC_DELAY_SECONDS = 120.0
@@ -89,6 +93,30 @@ class _Server(ThreadingHTTPServer):
             self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
         super().server_bind()
 
+    def handle_error(self, request: Any, client_address: Any) -> None:
+        """Log a failed request instead of printing a traceback to stderr.
+
+        A client that hangs up mid-request (a closed tab, a hook that timed out) is
+        routine, not a fault. Anything else goes to the log with its type.
+        """
+        error = sys.exception()
+        if isinstance(error, ConnectionError | TimeoutError):
+            log.debug("client went away", extra={"error": type(error).__name__})
+            return
+        log.warning("request failed", extra={"error": repr(error), "client": str(client_address)})
+
+
+class ChildFailedError(RuntimeError):
+    """A sync or embedding child process failed or ran out of time."""
+
+
+def _summary_line(output: str) -> str:
+    """The `ok ...` line `projectmind sync` prints, without the marker."""
+    for line in output.splitlines():
+        if line.startswith("ok "):
+            return line[3:].strip()
+    return "sync finished"
+
 
 class Daemon:
     def __init__(
@@ -117,6 +145,7 @@ class Daemon:
         self.sync_running = threading.Event()
         self.capture_handlers: dict[str, CaptureHandler] = dict(capture.HANDLERS)
         self.last_sync: dict[str, Any] = {}
+        self._child: subprocess.Popen[str] | None = None
         try:
             self.server = _Server(
                 ("127.0.0.1", port if port is not None else settings.daemon_port),
@@ -181,21 +210,56 @@ class Daemon:
             self.memory.evidence.semantic = None
 
     def _embed_pending(self) -> None:
-        """Embed passages added by the last sync, then refresh the in-memory matrix."""
+        """Embed passages added by the last sync, then refresh the in-memory matrix.
+
+        The embedding runs in a child process, like the sync: it is minutes of CPU on a
+        large first pass, and in this process it would compete with every prompt.
+        """
         if self.semantic is None:
             return
-        from projectmind.semantic import SemanticIndex
+        output = self._run_child(["semantic", "index"], timeout=EMBED_TIMEOUT_SECONDS)
+        if "nothing to embed" in output:
+            return
+        with self.lock:
+            self.semantic.load()
 
-        store = open_store(self.settings)
+    def _run_child(self, args: list[str], *, timeout: float) -> str:
+        """Run `projectmind <args>` as a low-priority, windowless child; its output, or raise.
+
+        The work shares nothing with this process but the database file, so a long scan can
+        never hold up the interpreter that answers prompts.
+        """
+        interpreter = Path(sys.executable)
+        console_python = interpreter.with_name("python.exe")
+        if interpreter.name.lower() == "pythonw.exe" and console_python.is_file():
+            interpreter = console_python  # has real stdout/stderr pipes; no window is shown
+        env = {**os.environ, "PROJECTMIND_HOME": str(self.home)}
+        if self.settings.db_url:
+            env["PROJECTMIND_DB_URL"] = self.settings.db_url
+        process = subprocess.Popen(
+            [str(interpreter), "-I", "-m", "projectmind.cli", *args],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            env=env,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            creationflags=NO_WINDOW | LOW_PRIORITY,
+        )
+        self._child = process
         try:
-            worker = SemanticIndex(
-                store, model_name=self.semantic.model_name, encoder=self.semantic.encoder
-            )
-            if worker.embed_pending():
-                with self.lock:
-                    self.semantic.load()
+            output, errors = process.communicate(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.communicate()
+            raise ChildFailedError(f"{' '.join(args)} timed out after {timeout:.0f}s") from None
         finally:
-            store.close()
+            self._child = None
+        if process.returncode != 0:
+            tail = (errors or output).strip().splitlines()[-1:] or ["no output"]
+            raise ChildFailedError(f"{' '.join(args)} exited {process.returncode}: {tail[0][:200]}")
+        return output
 
     # --- lifecycle ---------------------------------------------------------
     def start(self) -> None:
@@ -217,8 +281,16 @@ class Daemon:
     def wait(self) -> None:
         self.stop_event.wait()
 
+    def _end_child(self) -> None:
+        """Stop a sync or embedding child that is still running, as the daemon shuts down."""
+        child = self._child
+        if child is not None and child.poll() is None:
+            with contextlib.suppress(OSError):
+                child.terminate()
+
     def stop(self) -> None:
         self.stop_event.set()
+        self._end_child()
         self.server.shutdown()
         self.server.server_close()
         if self.announces:
@@ -255,19 +327,11 @@ class Daemon:
             return False
         self.sync_running.set()
         try:
-            from projectmind.sources.priority import lower_priority
-            from projectmind.sync import sync
-
-            lower_priority()
-            store = open_store(self.settings)
-            try:
-                report = sync(store, self.settings)
-            finally:
-                store.close()
+            output = self._run_child(["sync"], timeout=SYNC_TIMEOUT_SECONDS)
             self._embed_pending()
             self.last_sync = {
                 "at": datetime.now(UTC).isoformat(),
-                "summary": report.summary(),
+                "summary": _summary_line(output),
             }
         except Exception as exc:
             log.warning("scheduled sync failed", extra={"error": str(exc)})

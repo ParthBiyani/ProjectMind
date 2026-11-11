@@ -64,6 +64,52 @@ class TestPages:
             "utm" not in doc.uri and "#" not in doc.uri for doc in memory.store.list_documents()
         )
 
+    def test_a_conversation_on_a_chat_site_is_stored_and_searchable(
+        self, memory: MemoryService
+    ) -> None:
+        chat = (
+            "You: The nightly sync fails with a locked database error after the daemon "
+            "restarts. What should I check first? Assistant: Look at whether two writers hold "
+            "the SQLite file open at once, then check the journal mode and busy timeout. " * 2
+        )
+        result = handle_page(
+            memory,
+            page(
+                url="https://claude.ai/chat/9b5896fb-3215-4457-a75c?x=1",
+                title="Locked sync",
+                text=chat,
+            ),
+        )
+        assert result["stored"] is True
+        [hit] = memory.store.search_chunks(["busy", "timeout"], limit=1)
+        assert hit.document.uri == "https://claude.ai/chat/9b5896fb-3215-4457-a75c"
+
+    def test_other_pages_of_a_chat_site_are_refused(self, memory: MemoryService) -> None:
+        for url in (
+            "https://claude.ai/settings/billing",
+            "https://chatgpt.com/auth/login",
+            "https://chatgpt.com/",
+            "https://auth.openai.com/log-in",
+        ):
+            result = handle_page(memory, page(url=url))
+            assert result["stored"] is False, url
+        assert memory.store.list_documents() == []
+
+    def test_the_open_tabs_list_leaves_out_a_chat_sites_settings_page(
+        self, memory: MemoryService
+    ) -> None:
+        handle_tabs(
+            memory,
+            {
+                "tabs": [
+                    {"url": "https://claude.ai/chat/9b5896fb-3215", "title": "Locked sync"},
+                    {"url": "https://claude.ai/settings/billing", "title": "Billing"},
+                ]
+            },
+        )
+        [hit] = memory.store.search_chunks(["locked"], limit=3)
+        assert "Billing" not in hit.chunk.text
+
     def test_a_page_on_a_never_capture_site_is_refused(self, memory: MemoryService) -> None:
         result = handle_page(memory, page(url="https://kite.zerodha.com/dashboard"))
         assert result["stored"] is False
@@ -102,7 +148,7 @@ class TestPages:
         assert result["stored"] is False
         assert "off" in str(result["reason"])
 
-    def test_a_chunk_that_looks_like_a_credential_is_dropped(self, memory: MemoryService) -> None:
+    def test_a_credential_in_a_page_is_redacted_not_stored(self, memory: MemoryService) -> None:
         secret = "token: ghp_" + "aB3dE6gH9" * 4
         # The page body is longer than one chunk, so the secret sits in a chunk of its own.
         result = handle_page(
@@ -110,8 +156,22 @@ class TestPages:
             page(text=f"Setup notes for the gateway. {secret} keep it.\n\n" + PAGE * 8),
         )
         assert result["stored"] is True
-        assert result["withheld"] >= 1
+        assert result["redacted"] >= 1
         assert memory.store.search_chunks(["ghp"]) == []
+        [hit] = memory.store.search_chunks(["gateway"])
+        assert "[REDACTED:token]" in hit.chunk.text
+
+    def test_login_details_pasted_in_a_chat_are_redacted(self, memory: MemoryService) -> None:
+        text = (
+            "I cannot sign in to the vendor portal. My login is ann@example.org and my "
+            "password is Tr0ub4dor&3, but it says the account is locked. What should I do next? "
+            "I already tried resetting it twice from the settings page without any luck."
+        )
+        assert handle_page(memory, page(text=text))["stored"] is True
+        assert memory.store.search_chunks(["Tr0ub4dor"]) == []
+        [hit] = memory.store.search_chunks(["locked"])
+        assert "[REDACTED:password]" in hit.chunk.text
+        assert "ann@example.org" not in hit.chunk.text
 
     def test_text_is_cut_to_the_size_limit(self, memory: MemoryService) -> None:
         handle_page(memory, page(text=("word " * 40_000)))

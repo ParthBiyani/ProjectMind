@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from projectmind.config import Settings
-from projectmind.retrieval.evidence import EvidenceRetriever, idf, question_terms
+from projectmind.retrieval.evidence import EvidenceRetriever, contains_term, idf, question_terms
 from projectmind.service import MemoryService
 from projectmind.sources.config import RootConfig
 from projectmind.sources.indexer import KnowledgeIndexer
@@ -268,3 +268,37 @@ class TestSmallCorpus:
         KnowledgeIndexer(store).scan_root(RootConfig(path=root, depth=1))
         assert retriever(store).retrieve("Tune the kubernetes ingress certificate rotation") == []
         store.close()
+
+
+class TestInflections:
+    """Only the same word in another form counts as present; a rare word is not faked."""
+
+    def test_real_inflections_match(self) -> None:
+        for left, right in [
+            ("keep", "keeps"),
+            ("store", "stored"),
+            ("model", "models"),
+            ("train", "training"),
+            ("return", "returns"),
+            ("value", "values"),
+            ("migrate", "migrations"),
+            ("optimize", "optimization"),
+        ]:
+            assert contains_term(left, {right}), (left, right)
+            assert contains_term(right, {left}), (right, left)
+
+    def test_a_short_word_does_not_match_a_longer_one_that_merely_starts_like_it(self) -> None:
+        """ "shop" and "show" were counted as the rare word "shopify", so almost anything passed."""
+        for term, other in [
+            ("shopify", "shop"),
+            ("shopify", "show"),
+            ("shop", "shopify"),
+            ("catalog", "cat"),
+            ("running", "run"),
+            ("solver", "solve"),
+            ("fortran", "format"),
+        ]:
+            assert not contains_term(term, {other}), (term, other)
+
+    def test_an_exact_word_always_matches(self) -> None:
+        assert contains_term("shopify", {"shopify", "show"})

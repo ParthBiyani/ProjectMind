@@ -31,6 +31,7 @@ from projectmind.ingestion.github_source import GitHubError, GitHubSource, is_ex
 from projectmind.logging import get_logger
 from projectmind.models import EpisodicRecord, Fingerprint, Project, utcnow
 from projectmind.service import project_key
+from projectmind.sources.secrets import scrub
 from projectmind.storage import Store
 from projectmind.storage.embeddings import EmbeddingProvider, get_embedder
 
@@ -89,6 +90,25 @@ class IngestionReport:
             f"{self.records_extracted} records extracted, "
             f"{self.records_stored} new"
         )
+
+
+def _redacted_record(record: EpisodicRecord) -> EpisodicRecord:
+    """The record with credentials in its text replaced; unsalvageable text becomes a marker."""
+
+    def clean(value: str) -> str:
+        if not value:
+            return value
+        result = scrub(value)
+        return result.text if result is not None else "[withheld: looked like a credential]"
+
+    return record.model_copy(
+        update={
+            "what": clean(record.what),
+            "why": clean(record.why),
+            "outcome": clean(record.outcome),
+            "rejected_alternatives": tuple(clean(a) for a in record.rejected_alternatives),
+        }
+    )
 
 
 class IngestionPipeline:
@@ -278,7 +298,7 @@ class IngestionPipeline:
     def _store(self, records: Sequence[EpisodicRecord]) -> int:
         if not records:
             return 0
-        embedded = self._embed(records)
+        embedded = self._embed([_redacted_record(record) for record in records])
         return self.store.add_records(embedded)
 
     def _embed(self, records: Sequence[EpisodicRecord]) -> list[EpisodicRecord]:

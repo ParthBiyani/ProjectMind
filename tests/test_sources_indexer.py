@@ -107,6 +107,44 @@ class TestWalker:
         assert classify(tmp_path / "big.md", 50_000_000) is None
 
 
+class TestIgnoreRules:
+    def names(self, root: Path, *patterns: str) -> set[str]:
+        return {c.path.relative_to(root).as_posix() for c in walk(root, patterns)}
+
+    def test_a_name_pattern_matches_anywhere_below(self, tmp_path: Path) -> None:
+        write(tmp_path / "A" / "DEEP_DIVE.md", "private notes")
+        write(tmp_path / "A" / "sub" / "deep_dive.pdf", "x")
+        write(tmp_path / "A" / "README.md", "kept")
+        assert self.names(tmp_path, "DEEP_DIVE.*") == {"A/README.md"}
+
+    def test_a_path_pattern_is_relative_to_the_root(self, tmp_path: Path) -> None:
+        write(tmp_path / "A" / "VIVA.md", "private")
+        write(tmp_path / "B" / "VIVA.md", "other project, kept")
+        assert self.names(tmp_path, "A/VIVA.md") == {"B/VIVA.md"}
+
+    def test_a_trailing_slash_matches_folders_only(self, tmp_path: Path) -> None:
+        write(tmp_path / "A" / "drafts" / "one.md", "x")
+        write(tmp_path / "A" / "drafts.md", "a file called drafts.md is kept")
+        assert self.names(tmp_path, "drafts/") == {"A/drafts.md"}
+
+    def test_an_ignore_file_applies_from_its_folder_down(self, tmp_path: Path) -> None:
+        write(tmp_path / "A" / ".projectmindignore", "# private\nDEEP_DIVE.*\nold/\n")
+        write(tmp_path / "A" / "DEEP_DIVE.md", "private")
+        write(tmp_path / "A" / "old" / "n.md", "x")
+        write(tmp_path / "A" / "keep.md", "kept")
+        write(tmp_path / "B" / "DEEP_DIVE.md", "another project's file is not covered")
+        assert self.names(tmp_path) == {"A/keep.md", "B/DEEP_DIVE.md"}
+
+    def test_the_ignore_file_itself_is_never_indexed(self, tmp_path: Path) -> None:
+        write(tmp_path / "A" / ".projectmindignore", "nothing.md\n")
+        write(tmp_path / "A" / "keep.md", "kept")
+        assert self.names(tmp_path) == {"A/keep.md"}
+
+    def test_with_no_rules_nothing_changes(self, tmp_path: Path) -> None:
+        write(tmp_path / "A" / "one.md", "x")
+        assert self.names(tmp_path) == {"A/one.md"}
+
+
 class TestProjectResolution:
     def test_the_folder_at_depth_is_the_project(self, tmp_path: Path) -> None:
         root = build_root(tmp_path)
@@ -167,7 +205,7 @@ class TestScan:
         assert store.search_chunks(["should", "never", "read"]) == []
         assert store.search_chunks(["Zx81qLmN04aBc9QrTuV2wXy"]) == []
 
-    def test_a_chunk_holding_a_credential_is_dropped_whole(
+    def test_a_credential_is_redacted_and_the_rest_of_the_chunk_stays(
         self, store: Store, tmp_path: Path
     ) -> None:
         root = RootConfig(path=tmp_path / "r", depth=0)
@@ -176,8 +214,10 @@ class TestScan:
             "# Setup\n\nUse the gateway. The key is token: ghp_" + "aB3dE6gH9" * 4 + " keep it.\n",
         )
         report = KnowledgeIndexer(store).scan_root(root)
-        assert report.withheld >= 1
-        assert store.search_chunks(["gateway"]) == []
+        assert report.redacted == 1
+        assert store.search_chunks(["ghp_" + "aB3dE6gH9" * 4]) == []
+        [hit] = store.search_chunks(["gateway"])
+        assert "[REDACTED:token]" in hit.chunk.text
 
     def test_an_unchanged_tree_is_not_reindexed(self, store: Store, tmp_path: Path) -> None:
         root = build_root(tmp_path)
@@ -201,6 +241,19 @@ class TestScan:
         assert again.indexed == 1
         assert store.search_chunks(["voxel"]) == []
         assert store.search_chunks(["transformer"])
+
+    def test_a_file_ignored_after_it_was_indexed_leaves_the_index(
+        self, store: Store, tmp_path: Path
+    ) -> None:
+        root = build_root(tmp_path)
+        indexer = KnowledgeIndexer(store)
+        indexer.scan_root(root)
+        assert store.search_chunks(["chrF"])
+        hidden = RootConfig(root.path, root.kind, root.depth, ignore=("Albanian News/*",))
+        again = indexer.scan_root(hidden)
+        assert again.removed == 1
+        assert store.search_chunks(["chrF"]) == []
+        assert store.search_chunks(["voxel"])
 
     def test_a_deleted_file_leaves_the_index(self, store: Store, tmp_path: Path) -> None:
         root = build_root(tmp_path)
@@ -257,6 +310,21 @@ class TestSourcesConfig:
         assert [(r.path.as_posix(), r.kind, r.depth) for r in loaded.roots] == [
             ("D:/Project Eris", "competition", 2)
         ]
+
+    def test_ignore_patterns_roundtrip_and_are_omitted_when_empty(self, tmp_path: Path) -> None:
+        config = SourcesConfig(
+            roots=[
+                RootConfig(path=Path("D:/a"), ignore=("A/DEEP_DIVE.*", "drafts/")),
+                RootConfig(path=Path("D:/b")),
+            ]
+        )
+        config.save(tmp_path)
+        assert (
+            "ignore" not in (tmp_path / "sources.yaml").read_text(encoding="utf-8").split("D:/b")[1]
+        )
+        loaded = SourcesConfig.load(tmp_path)
+        assert loaded.roots[0].ignore == ("A/DEEP_DIVE.*", "drafts/")
+        assert loaded.roots[1].ignore == ()
 
     def test_a_missing_file_is_no_roots(self, tmp_path: Path) -> None:
         assert SourcesConfig.load(tmp_path).roots == []

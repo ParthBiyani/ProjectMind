@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sys
 from collections.abc import Iterator
 from contextlib import contextmanager
 
@@ -26,10 +27,25 @@ def service(settings: Settings | None = None) -> Iterator[MemoryService]:
         memory.close()
 
 
+def use_utf8_streams() -> None:
+    """Write UTF-8 when output is piped or redirected.
+
+    On Windows a pipe uses the ANSI code page, so "·", "—" and "…" reach the reader as
+    garbage. A real console is left alone: Rich writes to it directly.
+    """
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is None or stream.isatty():
+            continue
+        if (getattr(stream, "encoding", "") or "").lower().replace("-", "") != "utf8":
+            reconfigure(encoding="utf-8", errors="replace")
+
+
 def table(*columns: str, title: str | None = None) -> Table:
     built = Table(title=title, header_style="bold", box=None, pad_edge=False, title_justify="left")
     for column in columns:
-        built.add_column(column)
+        # Fold long values onto the next line; the default cuts them off with an ellipsis.
+        built.add_column(column, overflow="fold")
     return built
 
 

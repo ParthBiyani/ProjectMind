@@ -259,6 +259,8 @@ def prepare_reply(
         return Reply()
     cwd = project or Path(str(event.get("cwd") or Path.cwd()))
     session = event.get("session_id")
+    # `doctor` marks its probe so that checking the install never appears as a prompt.
+    record = not event.get("projectmind_self_test")
 
     try:
         if memory is None:
@@ -267,11 +269,19 @@ def prepare_reply(
 
             with MemoryService.open(get_settings()) as owned:
                 bundle = owned.get_context(
-                    text, cwd, source="hook", session_id=str(session) if session else None
+                    text,
+                    cwd,
+                    source="hook",
+                    session_id=str(session) if session else None,
+                    log_bundle=record,
                 )
         else:
             bundle = memory.get_context(
-                text, cwd, source="hook", session_id=str(session) if session else None
+                text,
+                cwd,
+                source="hook",
+                session_id=str(session) if session else None,
+                log_bundle=record,
             )
     except Exception as exc:  # a broken memory layer must not break the session
         log.warning("hook failed, serving nothing", extra={"error": str(exc)})

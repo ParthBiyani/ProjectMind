@@ -21,7 +21,7 @@ from projectmind.logging import get_logger
 from projectmind.sources import chunking, office, transcripts
 from projectmind.sources.config import RootConfig
 from projectmind.sources.models import SourceChunk
-from projectmind.sources.secrets import contains_secret
+from projectmind.sources.secrets import scrub
 from projectmind.sources.walker import (
     LOG_TAIL_BYTES,
     Candidate,
@@ -49,7 +49,10 @@ class ScanReport:
     removed: int = 0
     failed: int = 0
     chunks: int = 0
+    #: Chunks dropped because redaction could not make them safe.
     withheld: int = 0
+    #: Chunks kept after credentials or identifiers were replaced.
+    redacted: int = 0
     by_type: Counter[str] = field(default_factory=Counter)
     missing: Counter[str] = field(default_factory=Counter)
     error: str | None = None
@@ -110,7 +113,11 @@ class KnowledgeIndexer:
         resolver = ProjectResolver(root)
         seen: set[str] = set()
 
-        found = transcripts.candidates(root.path) if root.kind == "transcripts" else walk(root.path)
+        found = (
+            transcripts.candidates(root.path)
+            if root.kind == "transcripts"
+            else walk(root.path, root.ignore)
+        )
         for candidate in found:
             report.seen += 1
             uri = candidate.path.as_posix()
@@ -149,8 +156,22 @@ class KnowledgeIndexer:
         report: ScanReport,
     ) -> None:
         chunks, title, working_dir = self._read(candidate)
-        kept = [chunk for chunk in chunks if not contains_secret(f"{chunk.heading}\n{chunk.text}")]
-        report.withheld += len(chunks) - len(kept)
+        kept: list[SourceChunk] = []
+        for chunk in chunks:
+            heading, text = scrub(chunk.heading), scrub(chunk.text)
+            if heading is None or text is None:
+                report.withheld += 1
+                continue
+            if heading.changed or text.changed:
+                report.redacted += 1
+                chunk = SourceChunk(
+                    text=text.text,
+                    heading=heading.text,
+                    start_line=chunk.start_line,
+                    end_line=chunk.end_line,
+                    locator=chunk.locator,
+                )
+            kept.append(chunk)
         if not kept:
             # Remember the file so it is not re-read until it changes, but keep
             # nothing searchable from it.

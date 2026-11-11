@@ -5,6 +5,27 @@ loosely and [Semantic Versioning](https://semver.org/spec/v2.0.0.html) strictly.
 
 ## [Unreleased]
 
+### Added
+
+- **A Claude Code plugin.** `/plugin marketplace add ParthBiyani/ProjectMind`, then
+  `/plugin install projectmind@projectmind` and "install ProjectMind": a skill that checks the
+  machine, asks which folders to read, installs the package, builds the index, wires the hook and
+  MCP server and runs `doctor`, asking before every step that reads files or changes configuration.
+- **Redaction.** Credentials, passwords beside a login, one-time codes and personal identifiers
+  are replaced by `[REDACTED:kind]` before anything is indexed, and again on everything handed to
+  the agent; text that still looks like a secret after that is dropped whole. This replaces
+  dropping the whole chunk.
+- **AI chat conversations are read** (ChatGPT, Claude, Gemini), only on conversation pages and
+  never on sign-in, settings, billing or API-console pages. Older configs that denied these sites
+  by default move on once.
+- **`projectmind eval sample`** draws random passages to write a blind evaluation set from.
+- **Ignore rules.** `sources add <folder> --ignore <glob>` and `.projectmindignore` files
+  keep chosen files and folders out of the index; ones indexed earlier leave on the next sync.
+- **A longer never-capture default list** (card-verification gateways, identity partners,
+  throwaway mail, email click-tracking domains) and a rule that no sign-in page
+  (`login.*`, `accounts.*`, `auth.*`, `id.*`) is ever read, on any site.
+- `max_prompt_chars` (default 20,000): a pasted file or log no longer stalls other prompts.
+
 ### Changed
 
 - **Documentation consolidated.** The `docs/` pages, `extension/README.md` and
@@ -24,6 +45,33 @@ loosely and [Semantic Versioning](https://semver.org/spec/v2.0.0.html) strictly.
 
 ### Fixed
 
+- **The sync and the embedding run in child processes.** They shared the daemon's interpreter,
+  so a prompt during a sync took up to 4.4 s; it now takes about 220 to 420 ms. The daemon also
+  no longer lowers its own priority to sync.
+- **False injection on the history-record path** (0.174, over its 0.10 target): a record is now
+  served only if it covers the question's distinctive terms (0.095; every synthetic target passes).
+- **Short words matched rare ones by prefix** (`shop` and `show` counted as `shopify`), so a
+  passage sharing one common word could pass for a match. Found with the blind set.
+- The semantic bar is 0.80, up from 0.78, after calibrating on 40 absent-topic questions.
+- **Defaults added in a later release now reach an existing `browser.yaml`.** AI-chat sites
+  were on the default list but 113 of their pages stayed indexed because the old config never
+  picked up the new entries. A site taken off the list stays off.
+- **`sources audit` covers browser pages and says where it found things**, without printing
+  the matched text. It no longer reports a count it cannot explain.
+- **Browser pages are scanned for credentials before indexing.** A page with no title is
+  named by its address, so its query string (a token) reached the index through the title;
+  URL-shaped titles are cut at the query, wrapped tracking links are dropped, and stored
+  pages are re-read once under the new rules.
+- `history list / show` and `report` counted only profile and record tokens, so answers made
+  of cited passages showed 0 tokens.
+- `doctor` measured the cold in-process fallback and always warned. It now measures the
+  daemon path real prompts take, from a small folder, and its probe is never logged.
+- Every child process is started without a console window, with a test that fails if one is
+  not. (The daemon's windows flashed on every git call.)
+- Dropped client connections are logged instead of printed as tracebacks.
+- Command output is UTF-8 when piped on Windows, and long table values fold instead of
+  ending in an ellipsis.
+- The audit no longer flags the open-tabs list as a refused page.
 - The extension's timers are re-created on every browser start (Chromium does not
   guarantee alarms survive a restart), and it fetches the list again on start.
 - The embedding model is kept in `~/.projectmind/models` instead of the temp folder,
@@ -44,14 +92,14 @@ Closing the measured gaps, and making the system something you can watch work.
   System. `projectmind ui --demo` serves a fictional, fully indexed workspace on a free
   port so a demo never shows personal data; `--no-browser` prints the URL. The token
   reaches the page in the URL fragment and API calls require it; strict
-  Content-Security-Policy, no external requests. See docs/web-ui.md.
+  Content-Security-Policy, no external requests. See the README's Web UI section.
 - **Semantic search (optional, off by default).** Questions can be matched to
   passages by meaning as well as by words (`pip install 'projectmind[semantic]'`,
   `projectmind semantic enable`, `projectmind semantic index`). Vectors are stored
   per model (migration 005, SQLite and Postgres), embedded in the background after
   each sync, and held in memory by the daemon. Automatic injection keeps a strict,
   calibrated bar (cosine 0.78, near the best match, sharing a distinctive word). See
-  docs/semantic.md.
+  the README's Features and Configuration sections.
 - **`search_sources`** MCP tool and a `sources search` that find passages by words and
   by meaning, each result labelled with how it was found.
 - `eval real --semantic`, and a `semantic` check in `doctor`.
@@ -227,14 +275,14 @@ The reflection prefilter discards 99.1% of statement-record pairs.
 
 - **`false_injection_rate` misses its target at 0.174.** Not rounded away. The
   threshold sweep and the one trade that deliberately made the number worse are
-  in docs/evaluation.md.
+  recorded in the private evaluation notes, not in this repository.
 - **Four ranking constants were fitted on the eval set**, which therefore no
   longer measures them independently. A second labelled set is the fix.
 - **Proposal acceptance rate is unmeasured.** It needs a human working a queue
   of real proposals; the corpus has not drifted enough to produce one outside a
   constructed test.
-- **Phase 6 is unbuilt** by design — see
-  docs/phase-6-capture.md.
+- **Phase 6 (profile proposals from reading patterns) is unbuilt** by design; browser
+  reading was rebuilt differently and shipped later.
 
 ### Fixed along the way
 

@@ -29,6 +29,28 @@ def seeded(memory: MemoryService) -> MemoryService:
     return memory
 
 
+class TestPromptLimit:
+    def test_only_the_start_of_a_huge_prompt_is_searched(
+        self, memory: MemoryService, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        seen: list[int] = []
+        original = memory.analyse
+
+        def spy(prompt: str, fingerprint: object = None) -> object:
+            seen.append(len(prompt))
+            return original(prompt, fingerprint)  # type: ignore[arg-type]
+
+        monkeypatch.setattr(memory, "analyse", spy)
+        memory.settings.max_prompt_chars = 500
+        memory.get_context("word " * 100_000, log_bundle=False)
+        assert seen == [500]
+
+    def test_a_huge_search_query_is_cut_the_same_way(self, memory: MemoryService) -> None:
+        memory.settings.max_prompt_chars = 500
+        assert memory.search_sources("word " * 100_000) == []
+        assert Settings().max_prompt_chars == 20_000
+
+
 class TestTokenEstimates:
     def test_empty_text_costs_nothing(self) -> None:
         assert estimate_tokens("") == 0

@@ -321,21 +321,33 @@ def name_terms(name: str) -> set[str]:
     return {piece for piece in re.split(r"[\W_]+", name.lower()) if len(piece) >= 2}
 
 
+#: What can follow a word and still leave it the same word.
+_INFLECTIONS = frozenset({"s", "es", "d", "ed", "ing", "er", "ers", "ly"})
+
+
 def _close(left: str, right: str) -> bool:
     """Two words that are the same word in different inflections.
 
-    `return`/`returns`, `value`/`values`, `optimize`/`optimization`. Short words
-    must match exactly: `run` is not `running`, and `cat` is not `catalog`.
+    `return`/`returns`, `value`/`values`, `optimize`/`optimization`. A short word matches
+    only by an ending it could really take: `shop` is not `shopify` or `show`, `run` is not
+    `running`, and `cat` is not `catalog`. A rare word counted as present because a common
+    short one shares its first three letters would let almost anything pass for a match.
+    The looser stem rule is kept for words of six letters or more, where the shared stem is
+    long enough to mean something.
     """
-    shortest = min(len(left), len(right))
-    if shortest < 4 or abs(len(left) - len(right)) > 4:
+    short, long_ = sorted((left, right), key=len)
+    if len(short) < 4:
+        return False
+    if long_.startswith(short) and long_[len(short) :] in _INFLECTIONS:
+        return True
+    if len(short) < 6 or len(long_) - len(short) > 4:
         return False
     prefix = 0
     for a, b in zip(left, right, strict=False):
         if a != b:
             break
         prefix += 1
-    return prefix >= shortest - 1
+    return prefix >= len(short) - 1
 
 
 def contains_term(term: str, vocabulary: set[str]) -> bool:
@@ -388,7 +400,9 @@ def render_found(found: Found) -> str:
     """A result as text: how it was found, where it is from, and the passage."""
     how = "by words" if found.via == "words" else f"by meaning, similarity {found.similarity:.2f}"
     item = found.evidence
-    return f"[{how}] {item.citation}\n{item.excerpt}"
+    from projectmind.sources.secrets import redact_text
+
+    return redact_text(f"[{how}] {item.citation}\n{item.excerpt}")
 
 
 class EvidenceRetriever:

@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import ipaddress
 import os
+import re
 import shutil
 import sqlite3
 import tempfile
@@ -40,12 +41,16 @@ import yaml
 
 from projectmind.logging import get_logger
 from projectmind.sources.models import SourceChunk
+from projectmind.sources.secrets import scrub
 from projectmind.storage import ChunkRecord, DocumentRecord, Store
 
 log = get_logger(__name__)
 
 CONFIG_FILE = "browser.yaml"
-CONFIG_VERSION = 2
+CONFIG_VERSION = 3
+#: Bump when what is stored for a page changes (title cleaning, credential scan), so pages
+#: read under the old rules are read again once rather than kept as they were.
+PAGE_RULES = 2
 ROOT_KEY = "browser"
 CHROMIUM_EPOCH = datetime(1601, 1, 1, tzinfo=UTC)
 
@@ -85,13 +90,57 @@ DEFAULT_DENY = (
     # cloud consoles (keys and bills)
     "console.aws.amazon.com", "portal.azure.com", "console.cloud.google.com",
     "dashboard.render.com", "vercel.com",
-    # AI chats (private conversations)
-    "claude.ai", "chatgpt.com", "chat.openai.com", "gemini.google.com",
     # health
     "practo.com", "1mg.com", "pharmeasy.in", "apollo247.com",
     # shopping and orders
     "amazon.in", "amazon.com", "flipkart.com", "myntra.com", "swiggy.com", "zomato.com",
     "blinkit.com", "zeptonow.com", "bigbasket.com",
+    # card-verification and payment gateways, identity partners, throwaway mail
+    "wibmo.com", "juspay.in", "meon.co.in", "temp-mail.org",
+    # AI provider consoles: API keys and billing (the chat apps themselves are read)
+    "platform.openai.com", "console.anthropic.com", "platform.claude.com",
+    # email click-tracking and campaign redirects (their links carry tokens)
+    "sendgrid.net", "awstrack.me", "emailshot.io", "list-manage.com", "mandrillapp.com",
+    "mailgun.org", "hubspotlinks.com",
+)  # fmt: skip
+
+#: AI chat sites were once denied outright. They are now read, but only their conversation
+#: pages (see CHAT_SITES): sign-in, settings, billing and every other page stay unread.
+#: Configs written before this moved on drop these entries once, on first load.
+RETIRED_DENY = frozenset({"claude.ai", "chatgpt.com", "chat.openai.com", "gemini.google.com"})
+
+#: Where a conversation lives on each chat site. On these sites nothing else is read: a
+#: login, account, settings, upgrade or payment page never matches. Mirrored in
+#: extension/lib.js (a test keeps the two in agreement).
+CHAT_SITES: dict[str, tuple[re.Pattern[str], ...]] = {
+    "chatgpt.com": (
+        re.compile(r"^/c/[\w%.:~-]+$"),
+        re.compile(r"^/g/[\w%.:~-]+/c/[\w%.:~-]+$"),
+        re.compile(r"^/share/[\w%.:~-]+$"),
+    ),
+    "chat.openai.com": (
+        re.compile(r"^/c/[\w%.:~-]+$"),
+        re.compile(r"^/share/[\w%.:~-]+$"),
+    ),
+    "claude.ai": (
+        re.compile(r"^/chat/[\w%.:~-]+$"),
+        re.compile(r"^/share/[\w%.:~-]+$"),
+    ),
+    "gemini.google.com": (
+        re.compile(r"^/app/[\w%.:~-]+$"),
+        re.compile(r"^/share/[\w%.:~-]+$"),
+    ),
+}
+
+#: A sign-in page is never read, on any site: a host with one of these labels in front
+#: of its registered domain (`login.example.com`, `accounts.google.co.in`) or starting
+#: with one of these prefixes (`secure-acs2ui.example.com`).
+SIGNIN_LABELS = frozenset(
+    {"login", "signin", "sign-in", "sso", "auth", "authn", "oauth", "account", "accounts",
+     "identity", "secure"}
+)  # fmt: skip
+SIGNIN_PREFIXES = (
+    "login-", "signin-", "static-login", "authentication", "authn-", "sso-", "secure-",
 )  # fmt: skip
 
 #: Never read, and not on the list because it cannot be taken off it.
@@ -112,6 +161,15 @@ def is_local(host: str) -> bool:
     return address.is_private or address.is_loopback or address.is_link_local
 
 
+def is_signin_host(host: str) -> bool:
+    """A host that exists to sign you in: `login.*`, `accounts.*`, `*.auth.*`, `id.*`."""
+    labels = host.lower().strip(".").split(".")
+    front = labels[:-2] or labels[:1]
+    if labels[0] == "id" and len(labels) > 2:
+        return True
+    return any(label in SIGNIN_LABELS or label.startswith(SIGNIN_PREFIXES) for label in front)
+
+
 def clean_domain(domain: str) -> str | None:
     """`https://www.Kite.com/login` -> `kite.com`. None if it is not a domain."""
     text = domain.strip().lower()
@@ -128,6 +186,9 @@ class BrowserConfig:
     enabled: bool = False
     deny: tuple[str, ...] = DEFAULT_DENY
     days: int = 365
+    #: Default entries this config has already been offered. A default added in a later
+    #: release is merged in once; one the person took off the list stays off.
+    seen: tuple[str, ...] = DEFAULT_DENY
 
     @classmethod
     def load(cls, home: Path) -> BrowserConfig:
@@ -140,6 +201,13 @@ class BrowserConfig:
             # Version 1 read only an allow-list; its deny list was extra. Moving to
             # "everything except", the defaults join whatever was denied before.
             listed = tuple(dict.fromkeys((*DEFAULT_DENY, *listed)))
+        else:
+            seen = {str(item).lower() for item in raw.get("defaults_seen") or ()}
+            # No record (a config from before it existed) means nothing was offered
+            # yet, so every missing default is added: failing closed on privacy.
+            listed = tuple(dict.fromkeys((*listed, *(d for d in DEFAULT_DENY if d not in seen))))
+        if int(raw.get("version", 1)) < 3:
+            listed = tuple(entry for entry in listed if entry not in RETIRED_DENY)
         return cls(
             enabled=bool(raw.get("enabled", True)),
             deny=listed,
@@ -154,25 +222,45 @@ class BrowserConfig:
             "enabled": self.enabled,
             "days": self.days,
             "deny": list(self.deny),
+            "defaults_seen": list(dict.fromkeys((*self.seen, *DEFAULT_DENY))),
         }
         path.write_text(yaml.safe_dump(payload, sort_keys=False), encoding="utf-8")
         return path
 
     def permits(self, host: str) -> bool:
         host = host.lower().removeprefix("www.")
-        if is_local(host):
+        if is_local(host) or is_signin_host(host):
             return False
         return not any(_host_matches(host, pattern) for pattern in self.deny)
+
+    def permits_page(self, url: str) -> bool:
+        """Whether this page may be read: its site is allowed, and on a chat site it is a
+        conversation (never the login, settings or billing pages of that site)."""
+        parts = urlsplit(url)
+        host = (parts.hostname or "").lower().removeprefix("www.")
+        if not self.permits(host):
+            return False
+        return chat_path_allowed(host, parts.path)
 
     def denying(self, domain: str) -> BrowserConfig:
         """This config with `domain` on the never-capture list."""
         if domain in self.deny:
             return self
-        return BrowserConfig(self.enabled, (*self.deny, domain), self.days)
+        return BrowserConfig(self.enabled, (*self.deny, domain), self.days, self.seen)
 
     def allowing(self, domain: str) -> BrowserConfig:
         """This config with `domain` taken off the never-capture list."""
-        return BrowserConfig(self.enabled, tuple(d for d in self.deny if d != domain), self.days)
+        kept = tuple(d for d in self.deny if d != domain)
+        return BrowserConfig(self.enabled, kept, self.days, self.seen)
+
+
+def chat_path_allowed(host: str, path: str) -> bool:
+    """True for any site that is not a chat site; for one, only for a conversation page."""
+    clean = path.rstrip("/") or "/"
+    for site, patterns in CHAT_SITES.items():
+        if _host_matches(host, site):
+            return any(pattern.match(clean) for pattern in patterns)
+    return True
 
 
 def _host_matches(host: str, pattern: str) -> bool:
@@ -234,7 +322,30 @@ def clean_url(url: str) -> str | None:
     parts = urlsplit(url)
     if parts.scheme not in {"http", "https"} or not parts.hostname:
         return None
+    if _WRAPPED_LINK.search(parts.path) or _SECRET_IN_PATH.search(parts.path):
+        return None  # a click-tracking redirect, or a token riding in the path
     return f"{parts.scheme}://{parts.hostname}{parts.path}".rstrip("/") or None
+
+
+#: A page with no title is named by its address, query string and all.
+_URL_TITLE = re.compile(r"^(?:https?://)?[\w-]+(?:\.[\w-]+)+(?::\d+)?(?:/\S*)?[?#]")
+
+
+def clean_title(title: str) -> str:
+    """The page title, minus the query or fragment when the "title" is really a URL."""
+    text = title.strip()
+    if _URL_TITLE.match(text):
+        return re.split(r"[?#]", text, maxsplit=1)[0]
+    return text
+
+
+#: `/L0/https:%2F%2Fother.site%2F...`: a link wrapped inside another link's path.
+_WRAPPED_LINK = re.compile(r"(?i)https?(?::|%3a)(?:/|%2f){2}")
+#: `...%26token=abc` or `/token=abc`: a credential-named parameter inside the path.
+_SECRET_IN_PATH = re.compile(
+    r"(?i)(?<![a-z])(?:token|secret|password|passwd|sig|signature|session|apikey|api_key|auth)"
+    r"(?:=|%3d)"
+)
 
 
 def _copy_database(source: Path) -> tuple[Path, Path]:
@@ -292,17 +403,16 @@ def _read(connection: sqlite3.Connection, config: BrowserConfig, since: datetime
         cleaned = clean_url(row["url"])
         if cleaned is None:
             continue
-        host = urlsplit(cleaned).hostname or ""
-        if not config.permits(host):
+        if not config.permits_page(cleaned):
             continue
         page = pages.get(cleaned)
         if page is None:
-            pages[cleaned] = Page(cleaned, (row["title"] or "").strip(), 1, moment, moment)
+            pages[cleaned] = Page(cleaned, clean_title(row["title"] or ""), 1, moment, moment)
         else:
             page.visits += 1
             page.last = moment
             if row["title"]:
-                page.title = row["title"].strip()
+                page.title = clean_title(row["title"])
         allowed_visits.append((moment, cleaned))
 
     # A search is knowledge only if it led somewhere allowed.
@@ -345,13 +455,28 @@ class BrowserReport:
     unchanged: int = 0
     removed: int = 0
     with_queries: int = 0
+    #: Pages whose text looked like a credential or personal identifier; never indexed.
+    withheld: int = 0
     errors: list[str] = field(default_factory=list)
 
     def summary(self) -> str:
+        withheld = f", {self.withheld} withheld" if self.withheld else ""
         return (
-            f"{self.indexed} pages indexed ({self.unchanged} unchanged, {self.removed} removed) "
-            f"from {self.databases} browser profile(s)"
+            f"{self.indexed} pages indexed ({self.unchanged} unchanged, {self.removed} removed"
+            f"{withheld}) from {self.databases} browser profile(s)"
         )
+
+
+def _sanitised(page: Page) -> Page | None:
+    """The page with credentials replaced in its title and searches, or None if unsalvageable."""
+    title = scrub(page.title)
+    address = scrub(page.url)
+    queries = [scrub(query) for query in page.queries]
+    if title is None or address is None or address.changed or any(q is None for q in queries):
+        return None
+    page.title = title.text
+    page.queries = [q.text for q in queries if q is not None]
+    return page
 
 
 def index_history(
@@ -386,6 +511,13 @@ def index_history(
                 if query not in existing.queries and len(existing.queries) < MAX_QUERIES_PER_PAGE:
                     existing.queries.append(query)
 
+    # The same credential scan the file reader applies: a page that trips it is not
+    # indexed, and one indexed earlier leaves with the other pages no longer allowed.
+    for url in list(merged):
+        if _sanitised(merged[url]) is None:
+            del merged[url]
+            report.withheld += 1
+
     report.pages = len(merged)
     report.with_queries = sum(1 for page in merged.values() if page.queries)
     if dry_run:
@@ -393,7 +525,7 @@ def index_history(
 
     known = store.document_hashes(ROOT_KEY)
     for page in merged.values():
-        fingerprint = f"{page.visits}-{page.last.isoformat()}-{len(page.queries)}"
+        fingerprint = f"{page.visits}-{page.last.isoformat()}-{len(page.queries)}-r{PAGE_RULES}"
         if known.get(page.url) == fingerprint:
             report.unchanged += 1
             continue

@@ -6,7 +6,7 @@ verbatim excerpts and exact citations, and stays silent when it has nothing.**
 
 [![CI](https://github.com/ParthBiyani/ProjectMind/actions/workflows/ci.yml/badge.svg)](https://github.com/ParthBiyani/ProjectMind/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/ParthBiyani/ProjectMind)](https://github.com/ParthBiyani/ProjectMind/releases)
-![Python](https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.13-blue)
+![Python](https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.13%20%7C%203.14-blue)
 ![Types](https://img.shields.io/badge/mypy-strict-blue)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
@@ -24,20 +24,33 @@ verbatim excerpts and exact citations, and stays silent when it has nothing.**
 
 ## Results
 
-Measured on a real knowledge base (~9,000 documents, 27,403 passages) with 42 questions,
-including 12 deliberately reworded and 10 about topics that appear nowhere:
+Measured on a real knowledge base (11,257 documents, 30,495 passages) with 42 questions,
+including 12 deliberately reworded and 10 about topics that appear nowhere (2026-11-10):
 
 | | Lexical | + semantic search |
 |---|---|---|
-| Right source cited (answerable questions) | **0.812** | **0.844** |
+| Right source cited (answerable questions) | **0.844** | **0.875** |
 | Silent on absent topics | **1.000** | **1.000** |
-| Explicit search finds the right source | 28 / 32 | **30 / 32** |
-| Hook latency (through the daemon) | ~150 ms | ~150 ms |
+| Explicit search finds the right source (top 8) | 26 / 32 | **30 / 32** |
+| Hook latency (through the daemon) | ~220 ms | ~220 ms |
+
+The hook figure is a median of ten runs (196 to 242 ms) and includes Python start-up. The
+sync and the embedding run in their own low-priority processes, so a prompt during a sync took
+217 to 419 ms. The questions name private projects, so only the scorer and an example format
+ship.
+
+A second set guards against grading the system on questions written after seeing its answers:
+36 passages were drawn at random (`projectmind eval sample`, seeded), a question was written
+from each passage before anything was run, and 30 questions about topics the corpus does not
+hold were added. On it: right source cited **0.857** (24 of 28), silent on absent topics
+**1.000** (30 of 30). Building it found a word-matching bug that the hand-labelled set had
+never exercised, so its negatives are no longer a clean out-of-sample test of that fix; the
+semantic bar was then chosen using all 40 absent-topic questions.
 
 Synthetic, reproducible 40-query set (pinned clock): gate precision **1.000**, precision@5
-**0.750**, cross-project hit rate **0.325**, false injection **0.174** against a 0.10 target
-(missed: 4 of 23 served records were unlabelled extras). The real-data questions name private
-projects, so only the scorer and an example format ship (`eval/real.example.yaml`).
+**0.773**, cross-project hit rate **0.325**, false injection **0.095** against a 0.10 target
+(all four targets pass; the history-record coverage floor was fitted on this set). The example
+format for the real-data set is `eval/real.example.yaml`.
 
 ## Features
 
@@ -47,7 +60,7 @@ projects, so only the scorer and an example format ship (`eval/real.example.yaml
 - **Grounded retrieval**: rarity-weighted coverage with an absolute floor, anchor terms,
   named-project preference, near-duplicate suppression, a hard 2,300-token budget.
 - **Optional semantic search** (`BAAI/bge-small-en-v1.5`, on CPU): a strict, calibrated bar
-  for automatic injection (cosine 0.78, near the best match, sharing a distinctive word)
+  for automatic injection (cosine 0.80, near the best match, sharing a distinctive word)
   and a generous explicit search where every result says whether it matched by words or
   by meaning.
 - **Claude Code integration**: a pre-prompt hook (thin client, ~150 ms) and an MCP server
@@ -58,8 +71,25 @@ projects, so only the scorer and an example format ship (`eval/real.example.yaml
 - **Full interaction history**: every prompt, what was served, and why each candidate was
   kept or cut; replay, label and export to evaluation.
 - **Privacy guards**: whitelist walker, data-dump and identity-document guards, credential
-  and identifier dropping, read-only sources, re-auditable index.
+  and identifier redaction, read-only sources, re-auditable index.
 - **SQLite by default, Postgres + pgvector** behind the same storage protocol.
+
+## Install it with Claude Code
+
+In Claude Code:
+
+```
+/plugin marketplace add ParthBiyani/ProjectMind
+/plugin install projectmind@projectmind
+```
+
+(or in one step: `/plugin install projectmind --marketplace ParthBiyani/ProjectMind`), then say
+**"install ProjectMind"**. The skill checks your machine, lists candidate folders and asks which
+to read (it never adds a home folder or anything holding identity or financial documents),
+installs the package, builds the index, wires the hook and MCP server with backups, and checks
+the result with `projectmind doctor`. It asks before every step that reads your files or changes
+your Claude Code configuration. It was developed and tested on Windows 11; the tests also run
+on Linux in CI, but starting at logon and reading browser history are Windows-only.
 
 ## Quickstart (Windows, Python 3.11+)
 
@@ -71,7 +101,7 @@ py -m venv .venv
 .venv\Scripts\Activate.ps1
 
 projectmind ui --demo                       # see it first: a fictional workspace in the browser
-projectmind init                            # create the store, load starter profile proposals
+projectmind init --no-seed                  # create the store (--seed loads the author's example profile)
 projectmind sources add "D:/Projects"       # choose what to read (look inside first)
 projectmind sources add "~/.claude/projects" --kind transcripts --depth 0
 projectmind sync                            # read it (minutes the first time)
@@ -140,7 +170,8 @@ call needs it; the page has a strict Content-Security-Policy.
 Captures the readable text of the pages you read, **except sites on a never-capture list**
 that starts with banking, brokers (Kite/Zerodha, Fyers and others), payments, mail, chat,
 social media, sign-in pages, password managers, government identity sites, health,
-personal documents, cloud consoles and AI chats.
+personal documents and cloud consoles. **AI chat sites** (ChatGPT, Claude, Gemini) are read
+only on conversation pages, never their sign-in, settings or billing pages.
 
 1. `projectmind browser enable` (the daemon must be running).
 2. Open `edge://extensions` (or `chrome://extensions`), turn on **Developer mode**, choose
@@ -160,9 +191,28 @@ daemon is down, captures wait in a queue of 200.
 
 Local only: no network call on the retrieval path, and the daemon listens on loopback with
 a bearer token and a Host check. Credentials and personal identifiers (Aadhaar, PAN, SSN,
-card numbers) are dropped, not redacted; identity documents are never opened; sources are
+card numbers, passwords next to a login, one-time codes) are replaced by `[REDACTED:kind]`
+before anything is stored, shown or handed to your agent, and text that still looks like a secret
+afterwards is dropped whole; identity documents are never opened; sources are
 only ever read; browser reading is opt-in and has a never-capture list;
 `projectmind sources audit --fix` re-applies the rules to what is already stored.
+
+## Keeping things out
+
+Besides the built-in guards, you choose what is never read:
+
+- **Per folder:** `projectmind sources add D:/Projects --ignore "MyApp/NOTES_PRIVATE.*"`
+  (repeatable; saved in `sources.yaml`; re-adding a folder keeps its list).
+- **Per project:** a `.projectmindignore` file in any folder, one glob per line. `old/`
+  matches folders, `drafts.md` a name anywhere below, `Sub/dir/*.md` a path from that file's
+  folder. A file ignored after it was indexed leaves the index on the next sync.
+- **Sites:** the never-capture list (extension options, or `projectmind browser deny / allow`).
+  Defaults added in later releases reach an existing list once; a site you took off stays
+  off. Sign-in pages (`login.*`, `accounts.*`, `auth.*`), email click-tracking links and any
+  page whose text looks like a credential are never indexed.
+
+`projectmind sources audit` reports what the current rules would refuse and where it is;
+`--fix` removes it.
 
 ## Configuration
 
@@ -175,7 +225,7 @@ Read from the environment and `~/.projectmind/.env` (never a project's `.env`).
 | `PROJECTMIND_AUTHORS` | git `user.email` | whose commits are yours |
 | `PROJECTMIND_HISTORY` | `full` | `full`, `minimal` or `off` |
 | `PROJECTMIND_SEMANTIC` | `false` | meaning search (`projectmind semantic enable`) |
-| `PROJECTMIND_SEMANTIC_THRESHOLD` | `0.78` | least cosine for an automatic meaning match |
+| `PROJECTMIND_SEMANTIC_THRESHOLD` | `0.80` | least cosine for an automatic meaning match |
 | `PROJECTMIND_EVIDENCE_COVERAGE_FLOOR` | `0.6` | how much of a question a passage must cover |
 | `PROJECTMIND_DAEMON_PORT` | `47615` | fixed so the extension can find it |
 
@@ -190,7 +240,7 @@ All settings with rationale: [`config.py`](src/projectmind/config.py).
 | `install claude-code`, `serve`, `daemon status / stop / token`, `schedule install / remove` | Integration and the always-on daemon |
 | `context`, `history list / show / replay / label / export` | What the agent would receive; everything asked |
 | `profile review / add / edit`, `semantic status / enable / index`, `browser enable / deny / allow / scan` | Profile, meaning search, browser |
-| `eval run / real`, `doctor` | Measure it; verify the install |
+| `eval run / real / sample`, `doctor` | Measure it; verify the install |
 
 ## Project layout
 
@@ -208,6 +258,7 @@ src/projectmind/
   hook_entry.py   standard-library hook client
   mcp/  cli/  evaluation/  profile/  reflection/
 extension/        Edge / Chrome extension
+plugins/          the Claude Code plugin: the `install` skill (marketplace: .claude-plugin/)
 eval/             synthetic evaluation set, baselines, real-data example
 ```
 
@@ -221,15 +272,16 @@ mypy                        # strict
 node --test extension/test/lib.test.js
 ```
 
-CI runs lint, strict types, tests on Python 3.11 / 3.12 / 3.13, a Windows job and the storage
+CI runs lint, strict types, tests on Python 3.11 to 3.14, a Windows job on 3.12 and 3.14 and the storage
 parity suite against a pgvector container. Release history: [CHANGELOG.md](CHANGELOG.md).
 
 ## Known limitations
 
 - Automatic injection is precision-first: a question worded very differently from your notes
   may get nothing (semantic search narrows, not closes, this).
-- Synthetic false injection on the history-record path misses its target (0.174 vs 0.10).
-- The semantic threshold is calibrated on a small set.
+- The semantic bar (0.80) is calibrated on 40 absent-topic questions; one leaks at 0.77, so the
+  margin is about 0.03, and the questions come from one person's corpus.
+- Questions worded very differently from the notes still often get nothing, by design.
 - Single user, single machine. Model-written notes are not implemented.
 
 ## License

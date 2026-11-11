@@ -58,13 +58,36 @@ class Settings(BaseSettings):
         ),
     )
 
+    record_coverage_floor: float = Field(
+        default=0.07,
+        description=(
+            "A history record is served only if its words cover at least this share of the "
+            "question's distinctive terms (weighted by rarity). Scores are otherwise relative "
+            "to the best candidate, so a lone record that shares one generic word with the "
+            "question can read as a perfect match. 0.07 is the middle of the 0.06-0.08 range "
+            "that passes every synthetic target (fitted on that set; 0 turns the rule off)."
+        ),
+    )
+    max_prompt_chars: int = Field(
+        default=20_000,
+        description=(
+            "Longest question searched, in characters; the rest is ignored. A pasted log or "
+            "file would otherwise be matched word by word while the daemon's lock is held, "
+            "stalling every other prompt."
+        ),
+    )
+
     semantic: bool = Field(
         default=False,
         description="Also match questions to passages by meaning (needs the [semantic] extra).",
     )
     semantic_threshold: float = Field(
-        default=0.78,
-        description="Least cosine similarity for a passage to be served on meaning alone.",
+        default=0.80,
+        description=(
+            "Least cosine similarity for a passage to be served on meaning alone. "
+            "Calibrated on 40 absent-topic questions: one leaks at 0.77, none from 0.78, "
+            "and hits only start to fall at 0.82, so 0.80 sits in the middle."
+        ),
     )
     semantic_needs_word: bool = Field(
         default=True,

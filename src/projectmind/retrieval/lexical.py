@@ -56,6 +56,8 @@ class BM25Index:
     frequencies: dict[UUID, Counter[str]] = field(default_factory=dict)
     document_frequency: Counter[str] = field(default_factory=Counter)
     average_length: float = 0.0
+    #: Every word a record contains, with hyphenated names also split into their parts.
+    vocabulary: dict[UUID, frozenset[str]] = field(default_factory=dict)
 
     @property
     def size(self) -> int:
@@ -72,6 +74,9 @@ class BM25Index:
             index.documents[record.id] = tokens
             counts = Counter(tokens)
             index.frequencies[record.id] = counts
+            index.vocabulary[record.id] = frozenset(
+                piece for token in counts for piece in (token, *re.split(r"[-_.]", token))
+            )
             index.document_frequency.update(counts.keys())
             total_length += len(tokens)
         index.average_length = total_length / index.size if index.size else 0.0
@@ -85,6 +90,23 @@ class BM25Index:
         numerator = self.size - appearances + 0.5
         denominator = appearances + 0.5
         return max(0.0, math.log(1.0 + numerator / denominator))
+
+    def coverage(self, terms: Sequence[str], record_id: UUID) -> float:
+        """The share of the question's distinctive terms this record contains, by rarity.
+
+        A term nobody in the set contains counts as the rarest there could be, so a record
+        that matches one common word and misses every unusual one scores low instead of
+        looking perfect next to nothing.
+        """
+        words = self.vocabulary.get(record_id, frozenset())
+        unseen = math.log(1.0 + (self.size + 0.5) / 0.5)
+        total = matched = 0.0
+        for term in terms:
+            weight = self.idf(term) if self.document_frequency.get(term) else unseen
+            total += weight
+            if term in words:
+                matched += weight
+        return matched / total if total else 0.0
 
     def search(self, query: str, *, limit: int = 50) -> list[LexicalHit]:
         """Score every document against the query, best first.

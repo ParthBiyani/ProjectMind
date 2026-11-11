@@ -14,7 +14,7 @@ import pytest
 
 from projectmind import hook_entry
 from projectmind.config import Settings
-from projectmind.daemon import Daemon, load_token
+from projectmind.daemon import Daemon, _Server, load_token
 from projectmind.evaluation.fixtures import FixtureCorpus
 from projectmind.evaluation.live import load_corpus
 from projectmind.sources.config import RootConfig, SourcesConfig
@@ -220,6 +220,108 @@ class TestStatusAndSync:
         _, body, _ = call(running, "POST", "/context", {"prompt": "zebrafish light sheet pipeline"})
         assert b"zebrafish" in body
 
+    def test_the_sync_runs_in_a_separate_low_priority_windowless_process(
+        self, running: Daemon, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import projectmind.daemon as daemon_module
+        from projectmind.process import LOW_PRIORITY, NO_WINDOW
+
+        started: list[dict[str, object]] = []
+
+        class FakeProcess:
+            returncode = 0
+
+            def __init__(self, command: list[str], **options: object) -> None:
+                started.append({"command": command, **options})
+
+            def communicate(self, timeout: float | None = None) -> tuple[str, str]:
+                return "ok 3 new git records, 2 files read\n", ""
+
+            def poll(self) -> int:
+                return 0
+
+        monkeypatch.setattr(daemon_module.subprocess, "Popen", FakeProcess)
+        assert running.run_sync() is True
+        [call] = started
+        assert call["command"][1:] == ["-I", "-m", "projectmind.cli", "sync"]  # type: ignore[index]
+        assert call["creationflags"] == NO_WINDOW | LOW_PRIORITY
+        assert call["env"]["PROJECTMIND_HOME"] == str(running.home)  # type: ignore[index]
+        assert running.last_sync["summary"] == "3 new git records, 2 files read"
+        assert not running.sync_running.is_set()
+
+    def test_the_daemon_does_not_lower_its_own_priority_to_sync(
+        self, running: Daemon, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import projectmind.sources.priority as priority
+
+        calls: list[int] = []
+        monkeypatch.setattr(priority, "lower_priority", lambda: calls.append(1) or True)
+        running.run_sync()
+        assert calls == []
+
+    def test_a_failing_sync_is_reported_and_does_not_stick(
+        self, running: Daemon, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import projectmind.daemon as daemon_module
+
+        class Failing:
+            returncode = 3
+
+            def __init__(self, *args: object, **options: object) -> None:
+                pass
+
+            def communicate(self, timeout: float | None = None) -> tuple[str, str]:
+                return "", "Traceback...\nValueError: the folder vanished\n"
+
+        monkeypatch.setattr(daemon_module.subprocess, "Popen", Failing)
+        assert running.run_sync() is True
+        assert "exited 3" in running.last_sync["error"]
+        assert "the folder vanished" in running.last_sync["error"]
+        assert not running.sync_running.is_set()
+        assert running.run_sync() is True  # a failure does not block the next attempt
+
+    def test_a_stuck_sync_is_killed_after_the_timeout(
+        self, running: Daemon, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import projectmind.daemon as daemon_module
+
+        killed: list[bool] = []
+
+        class Stuck:
+            returncode = None
+
+            def __init__(self, *args: object, **options: object) -> None:
+                self.calls = 0
+
+            def communicate(self, timeout: float | None = None) -> tuple[str, str]:
+                self.calls += 1
+                if self.calls == 1:
+                    raise subprocess.TimeoutExpired("sync", timeout or 0)
+                return "", ""
+
+            def kill(self) -> None:
+                killed.append(True)
+
+        monkeypatch.setattr(daemon_module.subprocess, "Popen", Stuck)
+        monkeypatch.setattr(daemon_module, "SYNC_TIMEOUT_SECONDS", 0.01)
+        running.run_sync()
+        assert killed == [True]
+        assert "timed out" in running.last_sync["error"]
+
+    def test_stopping_the_daemon_ends_a_sync_in_progress(self, running: Daemon) -> None:
+        terminated: list[bool] = []
+
+        class Child:
+            def poll(self) -> None:
+                return None
+
+            def terminate(self) -> None:
+                terminated.append(True)
+
+        running._child = Child()  # type: ignore[assignment]
+        running._end_child()
+        assert terminated == [True]
+
     def test_shutdown_stops_the_daemon(self, running: Daemon) -> None:
         status, _, _ = call(running, "POST", "/shutdown", {})
         assert status == 200
@@ -422,6 +524,21 @@ class TestDashboardApi:
         )
         assert connection.getresponse().status == 400
         connection.close()
+
+
+def test_a_client_that_hangs_up_is_not_a_traceback_on_stderr(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    for error in (ConnectionResetError(10054, "reset"), BrokenPipeError(), TimeoutError()):
+        try:
+            raise error
+        except OSError:
+            _Server.handle_error(None, None, ("127.0.0.1", 1))  # type: ignore[arg-type]
+    try:
+        raise ValueError("a real fault")
+    except ValueError:
+        _Server.handle_error(None, None, ("127.0.0.1", 1))  # type: ignore[arg-type]
+    assert capsys.readouterr().err == ""
 
 
 def test_a_second_daemon_cannot_share_the_port(running: Daemon) -> None:

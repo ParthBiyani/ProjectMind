@@ -33,6 +33,12 @@ def add(
     depth: int = typer.Option(
         1, min=0, help="Levels below the folder where each project lives. 0 = the folder itself."
     ),
+    ignore: list[str] = typer.Option(
+        [],
+        "--ignore",
+        help="A glob never to read, e.g. 'MyApp/DEEP_DIVE.*' (repeatable). Keeps the "
+        "existing ones if none are given. A .projectmindignore file in the folder works too.",
+    ),
 ) -> None:
     """Add a folder as a knowledge source."""
     resolved = path.expanduser().resolve()
@@ -43,9 +49,13 @@ def add(
         fail(f"kind must be one of: {', '.join(KINDS)}")
         raise typer.Exit(code=1)
     config, home = _roots_or_exit()
-    created = config.add(RootConfig(path=resolved, kind=kind, depth=depth))
+    existing = next((r for r in config.roots if r.key == resolved.as_posix()), None)
+    patterns = tuple(ignore) or (existing.ignore if existing else ())
+    created = config.add(RootConfig(path=resolved, kind=kind, depth=depth, ignore=patterns))
     config.save(home)
     ok(f"{'added' if created else 'updated'} {resolved} ({kind}, depth {depth})")
+    if patterns:
+        note(f"never read: {', '.join(patterns)}")
     note("read it now with: projectmind sources scan")
 
 
@@ -91,6 +101,8 @@ def _render(reports: list[ScanReport]) -> None:
     rendered = table("folder", "indexed", "unchanged", "recent", "removed", "chunks", "note")
     for report in reports:
         details = report.error or ", ".join(f"{n} {kind}" for kind, n in report.by_type.items())
+        if report.redacted:
+            details += f"; {report.redacted} chunk(s) had credentials redacted"
         if report.withheld:
             details += f"; {report.withheld} chunk(s) withheld as credentials"
         if report.failed:
@@ -148,19 +160,26 @@ def audit_index(
 ) -> None:
     """Check what is already indexed against today's privacy rules.
 
-    Identity and financial documents, credentials and personal identifiers are
-    refused as files are read. This applies the same rules to what was indexed
-    before a rule existed. Without --fix it only reports.
+    Identity and financial documents, credentials, personal identifiers and sites
+    on the never-capture list are refused as they are read. This applies the same
+    rules to what was indexed before a rule existed. Without --fix it only reports.
     """
-    from projectmind.sources.audit import audit
+    from projectmind.sources.audit import audit, describe
+    from projectmind.sources.browser import BrowserConfig
 
     with service() as memory:
-        report = audit(memory.store, fix=fix)
+        report = audit(memory.store, fix=fix, browser=BrowserConfig.load(memory.settings.home))
     note(f"checked {report.documents_checked} documents and {report.chunks_checked} passages")
     for uri in report.sensitive_documents[:20]:
         fail(f"identity or financial document: {uri}")
+    if report.refused_pages:
+        fail(f"{len(report.refused_pages)} browser page(s) from sites that are never captured")
+        for uri in report.refused_pages[:20]:
+            note(f"  {describe(uri)}")
     if report.flagged_chunks:
         fail(f"{report.flagged_chunks} passage(s) contain a credential or personal identifier")
+        for uri in report.flagged_in[:20]:
+            note(f"  in {describe(uri)}")
     if report.clean:
         ok("nothing the rules would refuse")
         return

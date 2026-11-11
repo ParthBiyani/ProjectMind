@@ -85,7 +85,7 @@ class TestHookChecks:
                         "hooks": [
                             {
                                 "type": "command",
-                                "command": '"C:\gone\python.exe" -I -m projectmind.hook_entry '
+                                "command": '"C:\\gone\\python.exe" -I -m projectmind.hook_entry '
                                 "user-prompt-submit",
                             }
                         ],
@@ -129,6 +129,24 @@ class TestSelfTest:
         finding = diagnostics.check_hook_runs(get_settings())
         assert finding.status in {Status.OK, Status.WARN}, finding.detail
         assert "ms" in finding.detail
+
+    def test_without_a_daemon_it_says_it_measured_the_in_process_path(self) -> None:
+        finding = diagnostics.check_hook_runs(get_settings())
+        assert "in process, no daemon" in finding.detail
+
+    def test_with_a_daemon_it_measures_and_names_the_daemon_path(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import projectmind.hook_entry as hook_entry
+
+        monkeypatch.setattr(hook_entry, "daemon_alive", lambda *a, **k: True)
+        finding = diagnostics.check_hook_runs(get_settings())
+        assert "via the daemon" in finding.detail
+
+    def test_the_probe_runs_from_a_small_folder_not_the_temp_directory(self) -> None:
+        settings = get_settings()
+        diagnostics.check_hook_runs(settings)
+        assert (settings.home / "cache").is_dir()
 
     def test_the_self_test_does_not_pollute_the_history(self) -> None:
         from projectmind.storage import HistoryFilter, open_store

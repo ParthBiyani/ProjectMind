@@ -6,11 +6,13 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
+import yaml
 from typer.testing import CliRunner
 
 from projectmind.cli import app
 from projectmind.config import reset_settings
 from projectmind.sources.browser import (
+    DEFAULT_DENY,
     BrowserConfig,
     HistoryDatabase,
     clean_domain,
@@ -19,7 +21,7 @@ from projectmind.sources.browser import (
     page_chunk,
     read_pages,
 )
-from projectmind.storage import SqliteStore, Store
+from projectmind.storage import DocumentRecord, SqliteStore, Store
 
 runner = CliRunner()
 NOW = datetime(2026, 10, 30, 12, 0, tzinfo=UTC)
@@ -100,6 +102,16 @@ class TestUrls:
             == "https://docs.python.org/3/library/re.html"
         )
 
+    def test_a_link_wrapped_inside_a_tracking_path_is_not_a_page(self) -> None:
+        wrapped = (
+            "https://x.example.org/L0/https:%2F%2Fassess.example.com%2Fa%3Futm%3D1%26token=ab/1/xyz"
+        )
+        assert clean_url(wrapped) is None
+
+    def test_a_credential_in_the_path_is_not_kept(self) -> None:
+        assert clean_url("https://example.org/session=abc123/home") is None
+        assert clean_url("https://example.org/design=blue/home") is not None
+
     def test_only_web_pages_count(self) -> None:
         assert clean_url("file:///C:/secret.txt") is None
         assert clean_url("chrome://settings") is None
@@ -123,7 +135,7 @@ class TestNeverCaptureList:
             "fyers.com",
             "netbanking.hdfcbank.com",
             "accounts.google.com",
-            "claude.ai",
+            "paypal.com",
         ):
             assert not cfg.permits(host), host
 
@@ -166,6 +178,140 @@ class TestNeverCaptureList:
     def test_a_site_taken_off_the_list_stays_off_after_saving(self, tmp_path: Path) -> None:
         BrowserConfig(enabled=True).allowing("linkedin.com").save(tmp_path)
         assert BrowserConfig.load(tmp_path).permits("www.linkedin.com")
+
+    def test_a_default_added_later_reaches_an_existing_config(self, tmp_path: Path) -> None:
+        # A version-2 config written before `wibmo.com` was a default, with no record of
+        # which defaults it had been offered.
+        kept = [d for d in DEFAULT_DENY if d not in {"wibmo.com", "juspay.in"}]
+        (tmp_path / "browser.yaml").write_text(
+            yaml.safe_dump({"version": 2, "enabled": True, "deny": kept}), encoding="utf-8"
+        )
+        loaded = BrowserConfig.load(tmp_path)
+        assert not loaded.permits("secure.wibmo.com")
+        assert not loaded.permits("api.juspay.in")
+
+    def test_a_default_taken_off_stays_off_across_releases(self, tmp_path: Path) -> None:
+        BrowserConfig(enabled=True).allowing("paypal.com").save(tmp_path)
+        assert BrowserConfig.load(tmp_path).permits("paypal.com")
+        # and a second save and load does not bring it back
+        BrowserConfig.load(tmp_path).save(tmp_path)
+        assert BrowserConfig.load(tmp_path).permits("paypal.com")
+
+    @pytest.mark.parametrize(
+        "host",
+        [
+            "login.nvidia.com",
+            "accounts.google.co.in",
+            "account.beardo.in",
+            "auth.docker.com",
+            "id.gw.postman.com",
+            "static-login.nvidia.com",
+            "x.auth.us-east-1.amazoncognito.com",
+            "secure-acs2ui-b1.example.com",
+            "authentication-session-manager.indeed.com",
+        ],
+    )
+    def test_a_sign_in_page_is_never_read_on_any_site(self, host: str) -> None:
+        assert not config(deny=()).permits(host)
+
+    @pytest.mark.parametrize(
+        "host", ["docs.python.org", "authors.elsevier.com", "idea.example.com", "github.com"]
+    )
+    def test_ordinary_sites_are_not_mistaken_for_sign_in_pages(self, host: str) -> None:
+        assert config(deny=()).permits(host)
+
+    def test_payment_gateways_and_email_trackers_are_on_the_list(self) -> None:
+        for host in ("secure-acs2ui.wibmo.com", "u1.ct.sendgrid.net", "x.awstrack.me"):
+            assert not config().permits(host), host
+
+    CONVERSATIONS = (
+        "https://chatgpt.com/c/6aed6b58-9460-83ee-9522-e304a2b11a4a",
+        "https://chatgpt.com/c/local-chatgpt%3Abe24e543-6b5a-4782-82f5-bc1eef289b5b",
+        "https://chatgpt.com/g/g-abc123/c/6aed6b58-9460",
+        "https://chatgpt.com/share/6aed6b58-9460-83ee",
+        "https://chat.openai.com/c/6aed6b58-9460",
+        "https://claude.ai/chat/9b5896fb-3215-4457-a75c-77380226863f",
+        "https://claude.ai/share/9b5896fb-3215",
+        "https://gemini.google.com/app/1a2b3c4d5e6f",
+    )
+    NOT_CONVERSATIONS = (
+        "https://chatgpt.com",
+        "https://chatgpt.com/",
+        "https://chatgpt.com/auth/login",
+        "https://chatgpt.com/#pricing",
+        "https://chatgpt.com/settings",
+        "https://chatgpt.com/c",
+        "https://claude.ai/login",
+        "https://claude.ai/settings/billing",
+        "https://claude.ai/upgrade",
+        "https://claude.ai/new",
+        "https://claude.ai/chat/abc/extra/segments",
+        "https://auth.openai.com/log-in",
+        "https://platform.openai.com/settings/organization/billing",
+        "https://gemini.google.com/app",
+        "https://gemini.google.com/settings",
+        "https://accounts.google.com/signin",
+    )
+
+    def test_chat_sites_are_read_but_only_their_conversations(self) -> None:
+        cfg = config()
+        for url in self.CONVERSATIONS:
+            assert cfg.permits_page(url), url
+        for url in self.NOT_CONVERSATIONS:
+            assert not cfg.permits_page(url), url
+
+    def test_other_sites_are_unaffected_by_the_chat_rule(self) -> None:
+        cfg = config()
+        assert cfg.permits_page("https://docs.python.org/3/library/re.html")
+        assert not cfg.permits_page("https://mail.google.com/mail/u/0")
+
+    def test_a_person_can_still_deny_a_chat_site_outright(self) -> None:
+        cfg = config().denying("claude.ai")
+        assert not cfg.permits_page("https://claude.ai/chat/9b5896fb-3215")
+        assert cfg.permits_page("https://chatgpt.com/c/6aed6b58-9460")
+
+    def test_an_old_config_that_denied_chat_sites_by_default_is_moved_on_once(
+        self, tmp_path: Path
+    ) -> None:
+        old = [d for d in DEFAULT_DENY] + ["claude.ai", "chatgpt.com", "chat.openai.com"]
+        old += ["gemini.google.com", "paypal.com"]
+        (tmp_path / "browser.yaml").write_text(
+            yaml.safe_dump(
+                {"version": 2, "enabled": True, "deny": old, "defaults_seen": list(DEFAULT_DENY)}
+            ),
+            encoding="utf-8",
+        )
+        loaded = BrowserConfig.load(tmp_path)
+        assert loaded.permits_page("https://claude.ai/chat/9b5896fb-3215")
+        assert not loaded.permits_page("https://claude.ai/settings")
+        assert not loaded.permits("paypal.com")
+        # and once saved as version 3, denying a chat site again is respected, not undone
+        loaded.denying("claude.ai").save(tmp_path)
+        assert not BrowserConfig.load(tmp_path).permits_page("https://claude.ai/chat/9b5896fb-3215")
+
+    def test_the_javascript_rule_agrees_with_this_one(self) -> None:
+        import json
+        import shutil
+        import subprocess
+
+        if shutil.which("node") is None:
+            pytest.skip("node is not installed")
+        urls = [*self.CONVERSATIONS, *self.NOT_CONVERSATIONS, "https://docs.python.org/3/"]
+        deny = list(config().deny)
+        script = (
+            "const PM = require(process.argv[1]);"
+            "const urls = JSON.parse(process.argv[2]); const deny = JSON.parse(process.argv[3]);"
+            "console.log(JSON.stringify(urls.map((u) => PM.permitsPage(u, deny))));"
+        )
+        lib = str(Path(__file__).resolve().parents[1] / "extension" / "lib.js")
+        run = subprocess.run(
+            ["node", "-e", script, lib, json.dumps(urls), json.dumps(deny)],
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=60,
+        )
+        assert json.loads(run.stdout) == [config().permits_page(u) for u in urls]
 
     def test_what_a_person_types_becomes_a_site_name(self) -> None:
         assert clean_domain("https://www.Kite.com/login?x=1") == "kite.com"
@@ -257,6 +403,61 @@ class TestIndexing:
         assert hit.document.uri == "https://sqlite.org/fts5.html"
         assert "Found by searching: sqlite fts5 bm25 ranking" in hit.chunk.text
         assert hit.chunk.locator.startswith("visited")
+
+    def test_a_url_used_as_the_title_loses_its_query_string(
+        self, store: Store, tmp_path: Path
+    ) -> None:
+        fake = FakeBrowser(tmp_path / "H")
+        fake.visit(
+            "https://meet.example.org/join.do?name=Ann&token=AbCdEfGh12345678IjKl",
+            "meet.example.org/join.do?name=Ann&token=AbCdEfGh12345678IjKl",
+            NOW - timedelta(days=1),
+        )
+        index_history(store, config(), databases=[fake.done()], now=NOW)
+        [doc] = store.list_documents()
+        assert doc.title == "meet.example.org/join.do"
+        assert all("token" not in hit.chunk.text for hit in store.search_chunks(["join"]))
+
+    def test_a_page_stored_under_older_rules_is_read_again(
+        self, store: Store, tmp_path: Path
+    ) -> None:
+        database = self.make(tmp_path)
+        index_history(store, config(), databases=[database], now=NOW)
+        [doc] = store.list_documents()
+        store.replace_document(
+            DocumentRecord(
+                id=doc.id,
+                uri=doc.uri,
+                source_type="web",
+                root=doc.root,
+                project_key="web",
+                title="old title with ?token=x",
+                content_hash="1-2026-10-28T12:01:00+00:00-1",  # from before PAGE_RULES
+                mtime=doc.mtime,
+                indexed_at=doc.indexed_at,
+            ),
+            [],
+        )
+        again = index_history(store, config(), databases=[database], now=NOW)
+        assert again.indexed == 1
+        assert store.get_document(doc.uri).title == "SQLite FTS5 Extension"  # type: ignore[union-attr]
+
+    def test_a_credential_in_a_title_is_redacted_before_it_is_indexed(
+        self, store: Store, tmp_path: Path
+    ) -> None:
+        fake = FakeBrowser(tmp_path / "H")
+        fake.visit("https://docs.example.org/guide", "Setup guide", NOW - timedelta(days=1))
+        fake.visit(
+            "https://app.example.org/home",
+            "Dashboard api_key=Zx81qLmN04aBc9QrTuV2wXy",
+            NOW - timedelta(days=1),
+        )
+        database = fake.done()
+        report = index_history(store, config(), databases=[database], now=NOW)
+        assert (report.indexed, report.withheld) == (2, 0)
+        titles = {d.uri: d.title for d in store.list_documents()}
+        assert titles["https://app.example.org/home"] == "Dashboard api_key=[REDACTED:secret]"
+        assert store.search_chunks(["Zx81qLmN04aBc9QrTuV2wXy"]) == []
 
     def test_nothing_from_a_listed_site_is_stored(self, store: Store, tmp_path: Path) -> None:
         index_history(store, config(), databases=[self.make(tmp_path)], now=NOW)

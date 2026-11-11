@@ -120,7 +120,9 @@ class TestIndexing:
         names = {c.path.name for c in walk(tmp_path)}
         assert names == {"plan.md"}
 
-    def test_a_note_that_pastes_an_identifier_loses_only_that_chunk(self, tmp_path: Path) -> None:
+    def test_a_note_that_pastes_an_identifier_keeps_the_note_but_not_the_number(
+        self, tmp_path: Path
+    ) -> None:
         write(
             tmp_path / "p" / "NOTES.md",
             "# Notes\n\n## Forms\n\nMy PAN is ABCDE1234F, keep it for the filing.\n\n"
@@ -129,7 +131,9 @@ class TestIndexing:
         store = SqliteStore(":memory:")
         store.migrate()
         report = KnowledgeIndexer(store).scan_root(RootConfig(path=tmp_path, depth=1))
-        assert report.withheld >= 1
+        assert report.redacted == 1
         assert store.search_chunks(["ABCDE1234F"]) == []
         assert store.search_chunks(["roadmap"])
+        [hit] = store.search_chunks(["filing"])
+        assert "[REDACTED:pan]" in hit.chunk.text
         store.close()

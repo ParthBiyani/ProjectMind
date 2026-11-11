@@ -99,7 +99,7 @@ async function snapshotTabs() {
   const { deny } = await chrome.storage.local.get('deny');
   const tabs = await chrome.tabs.query({});
   const open = tabs
-    .filter((tab) => tab.url && PM.cleanUrl(tab.url) && PM.permits(new URL(tab.url).hostname, deny))
+    .filter((tab) => tab.url && PM.cleanUrl(tab.url) && PM.permitsPage(tab.url, deny))
     .map((tab) => ({ url: PM.cleanUrl(tab.url), title: tab.title || '' }));
   await deliver('tabs', { tabs: open });
 }

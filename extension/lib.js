@@ -43,13 +43,58 @@
     return false;
   }
 
+  // A host that exists to sign you in (login.*, accounts.*, *.auth.*, id.*): never read, on
+  // any site. Mirrors is_signin_host in browser.py.
+  const SIGNIN_LABELS = ['login', 'signin', 'sign-in', 'sso', 'auth', 'authn', 'oauth', 'account',
+    'accounts', 'identity', 'secure'];
+  const SIGNIN_PREFIXES = ['login-', 'signin-', 'static-login', 'authentication', 'authn-', 'sso-',
+    'secure-'];
+
+  function isSigninHost(host) {
+    const labels = String(host || '').toLowerCase().replace(/^\.+|\.+$/g, '').split('.');
+    if (labels[0] === 'id' && labels.length > 2) return true;
+    const front = labels.length > 2 ? labels.slice(0, -2) : labels.slice(0, 1);
+    return front.some((l) => SIGNIN_LABELS.indexOf(l) !== -1 ||
+      SIGNIN_PREFIXES.some((p) => l.startsWith(p)));
+  }
+
   // Everything except the never-capture list. `deny` undefined means the list has
   // not arrived from the daemon yet, and then nothing is read (fail closed).
   function permits(host, deny) {
     if (!Array.isArray(deny)) return false;
     const h = String(host).toLowerCase().replace(/^www\./, '');
-    if (isLocal(h)) return false;
+    if (isLocal(h) || isSigninHost(h)) return false;
     return !deny.some((d) => hostMatches(h, d));
+  }
+
+  // AI chat sites are read only on their conversation pages: never a login, settings,
+  // upgrade or payment page of the same site. Mirrors CHAT_SITES in browser.py.
+  const CHAT_ID = '[\\w%.:~-]+';
+  const CHAT_SITES = {
+    'chatgpt.com': [`^/c/${CHAT_ID}$`, `^/g/${CHAT_ID}/c/${CHAT_ID}$`, `^/share/${CHAT_ID}$`],
+    'chat.openai.com': [`^/c/${CHAT_ID}$`, `^/share/${CHAT_ID}$`],
+    'claude.ai': [`^/chat/${CHAT_ID}$`, `^/share/${CHAT_ID}$`],
+    'gemini.google.com': [`^/app/${CHAT_ID}$`, `^/share/${CHAT_ID}$`],
+  };
+
+  function chatPathAllowed(host, path) {
+    const clean = String(path || '').replace(/\/+$/, '') || '/';
+    for (const site of Object.keys(CHAT_SITES)) {
+      if (hostMatches(host, site)) return CHAT_SITES[site].some((p) => new RegExp(p).test(clean));
+    }
+    return true;
+  }
+
+  // A whole address: the site is allowed and, on a chat site, it is a conversation.
+  function permitsPage(rawUrl, deny) {
+    let url;
+    try {
+      url = new URL(rawUrl);
+    } catch (_) {
+      return false;
+    }
+    const host = url.hostname.toLowerCase().replace(/^www\./, '');
+    return permits(host, deny) && chatPathAllowed(host, url.pathname);
   }
 
   // A typed address such as www.Kite.com/login -> kite.com; null if it is not a domain.
@@ -125,7 +170,10 @@
     BATCH,
     hostMatches,
     isLocal,
+    isSigninHost,
     permits,
+    permitsPage,
+    chatPathAllowed,
     cleanDomain,
     looksSensitive,
     cleanUrl,

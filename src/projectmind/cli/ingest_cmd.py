@@ -12,6 +12,7 @@ from projectmind.cli._common import console, fail, note, ok, service, table
 from projectmind.config import get_settings
 from projectmind.ingestion.pipeline import IngestionPipeline, IngestionReport
 from projectmind.models import RecordType, utcnow
+from projectmind.process import NO_WINDOW
 from projectmind.sources.records import index_records
 from projectmind.storage import RecordFilter
 
@@ -61,6 +62,7 @@ def ingest_local(
                 text=True,
                 check=False,
                 timeout=5,
+                creationflags=NO_WINDOW,
             ).stdout.strip()
         except (OSError, subprocess.SubprocessError):
             configured = ""

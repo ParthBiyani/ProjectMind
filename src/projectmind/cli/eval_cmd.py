@@ -175,3 +175,36 @@ def real(
 
     if report.hit_rate < min_hit or report.false_injection_rate > max_false_injection:
         raise typer.Exit(code=1)
+
+
+@app.command("sample")
+def sample(
+    count: int = typer.Option(40, min=1, max=500, help="How many passages to draw."),
+    seed: int = typer.Option(1, help="The same seed draws the same passages."),
+    exclude: list[str] = typer.Option(
+        [], "--exclude", help="Leave out addresses containing this (repeatable)."
+    ),
+    out: Path | None = typer.Option(
+        None, "--out", help="Write the skeleton here, not to the screen."
+    ),
+) -> None:
+    """Draw random passages to write a blind evaluation set from.
+
+    A set labelled after looking at what the retriever returns flatters it. Here the
+    passage is drawn first and you write a question it answers; the label is its own
+    file. Fill in each `prompt`, then run `projectmind eval real <file>`.
+    """
+    from projectmind.evaluation.sample import draw, skeleton
+
+    with service() as memory:
+        drawn = draw(memory.store, count, seed=seed, exclude=exclude)
+    if not drawn:
+        fail("nothing to draw from; index some sources first")
+        raise typer.Exit(code=1)
+    text = skeleton(drawn)
+    if out:
+        out.write_text(text, encoding="utf-8")
+        ok(f"wrote {len(drawn)} passages to {out}")
+        note("every excerpt is redacted; fill in each prompt, then: projectmind eval real <file>")
+    else:
+        console.print(text, markup=False, highlight=False)
