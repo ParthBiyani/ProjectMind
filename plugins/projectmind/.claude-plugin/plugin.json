@@ -1,0 +1,10 @@
+{
+  "name": "projectmind",
+  "version": "0.3.0",
+  "description": "Install and set up ProjectMind, a local memory for Claude Code that answers from your own notes, commits and past sessions with exact citations.",
+  "author": { "name": "Parth Biyani" },
+  "homepage": "https://github.com/ParthBiyani/ProjectMind",
+  "repository": "https://github.com/ParthBiyani/ProjectMind",
+  "license": "MIT",
+  "keywords": ["memory", "rag", "mcp", "local-first"]
+}

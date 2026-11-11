@@ -7,6 +7,18 @@ loosely and [Semantic Versioning](https://semver.org/spec/v2.0.0.html) strictly.
 
 ### Added
 
+- **A Claude Code plugin.** `/plugin marketplace add ParthBiyani/ProjectMind`, then
+  `/plugin install projectmind@projectmind` and "install ProjectMind": a skill that checks the
+  machine, asks which folders to read, installs the package, builds the index, wires the hook and
+  MCP server and runs `doctor`, asking before every step that reads files or changes configuration.
+- **Redaction.** Credentials, passwords beside a login, one-time codes and personal identifiers
+  are replaced by `[REDACTED:kind]` before anything is indexed, and again on everything handed to
+  the agent; text that still looks like a secret after that is dropped whole. This replaces
+  dropping the whole chunk.
+- **AI chat conversations are read** (ChatGPT, Claude, Gemini), only on conversation pages and
+  never on sign-in, settings, billing or API-console pages. Older configs that denied these sites
+  by default move on once.
+- **`projectmind eval sample`** draws random passages to write a blind evaluation set from.
 - **Ignore rules.** `sources add <folder> --ignore <glob>` and `.projectmindignore` files
   keep chosen files and folders out of the index; ones indexed earlier leave on the next sync.
 - **A longer never-capture default list** (card-verification gateways, identity partners,
@@ -33,6 +45,14 @@ loosely and [Semantic Versioning](https://semver.org/spec/v2.0.0.html) strictly.
 
 ### Fixed
 
+- **The sync and the embedding run in child processes.** They shared the daemon's interpreter,
+  so a prompt during a sync took up to 4.4 s; it now takes about 220 to 420 ms. The daemon also
+  no longer lowers its own priority to sync.
+- **False injection on the history-record path** (0.174, over its 0.10 target): a record is now
+  served only if it covers the question's distinctive terms (0.095; every synthetic target passes).
+- **Short words matched rare ones by prefix** (`shop` and `show` counted as `shopify`), so a
+  passage sharing one common word could pass for a match. Found with the blind set.
+- The semantic bar is 0.80, up from 0.78, after calibrating on 40 absent-topic questions.
 - **Defaults added in a later release now reach an existing `browser.yaml`.** AI-chat sites
   were on the default list but 113 of their pages stayed indexed because the old config never
   picked up the new entries. A site taken off the list stays off.

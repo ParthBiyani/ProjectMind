@@ -1,0 +1,12 @@
+{
+  "name": "projectmind",
+  "description": "ProjectMind: a local memory for Claude Code.",
+  "owner": { "name": "Parth Biyani" },
+  "plugins": [
+    {
+      "name": "projectmind",
+      "source": "./plugins/projectmind",
+      "description": "Say \"install ProjectMind\" and Claude Code sets up a local memory that answers from your own notes, commits and past sessions, with citations."
+    }
+  ]
+}

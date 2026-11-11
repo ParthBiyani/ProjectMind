@@ -32,16 +32,25 @@ including 12 deliberately reworded and 10 about topics that appear nowhere (2026
 | Right source cited (answerable questions) | **0.844** | **0.875** |
 | Silent on absent topics | **1.000** | **1.000** |
 | Explicit search finds the right source (top 8) | 26 / 32 | **30 / 32** |
-| Hook latency (through the daemon, idle) | ~450 ms | ~450 ms |
+| Hook latency (through the daemon) | ~220 ms | ~220 ms |
 
-The hook figure includes about 230 ms of Python start-up on this laptop. While a sync is
-running (every 30 minutes, 20 to 60 seconds) a prompt can take a few seconds. The questions
-name private projects, so only the scorer and an example format ship.
+The hook figure is a median of ten runs (196 to 242 ms) and includes Python start-up. The
+sync and the embedding run in their own low-priority processes, so a prompt during a sync took
+217 to 419 ms. The questions name private projects, so only the scorer and an example format
+ship.
+
+A second set guards against grading the system on questions written after seeing its answers:
+36 passages were drawn at random (`projectmind eval sample`, seeded), a question was written
+from each passage before anything was run, and 30 questions about topics the corpus does not
+hold were added. On it: right source cited **0.857** (24 of 28), silent on absent topics
+**1.000** (30 of 30). Building it found a word-matching bug that the hand-labelled set had
+never exercised, so its negatives are no longer a clean out-of-sample test of that fix; the
+semantic bar was then chosen using all 40 absent-topic questions.
 
 Synthetic, reproducible 40-query set (pinned clock): gate precision **1.000**, precision@5
-**0.750**, cross-project hit rate **0.325**, false injection **0.174** against a 0.10 target
-(missed: 4 of 23 served records were unlabelled extras). The example format for the real-data
-set is `eval/real.example.yaml`.
+**0.773**, cross-project hit rate **0.325**, false injection **0.095** against a 0.10 target
+(all four targets pass; the history-record coverage floor was fitted on this set). The example
+format for the real-data set is `eval/real.example.yaml`.
 
 ## Features
 
@@ -62,8 +71,25 @@ set is `eval/real.example.yaml`.
 - **Full interaction history**: every prompt, what was served, and why each candidate was
   kept or cut; replay, label and export to evaluation.
 - **Privacy guards**: whitelist walker, data-dump and identity-document guards, credential
-  and identifier dropping, read-only sources, re-auditable index.
+  and identifier redaction, read-only sources, re-auditable index.
 - **SQLite by default, Postgres + pgvector** behind the same storage protocol.
+
+## Install it with Claude Code
+
+In Claude Code:
+
+```
+/plugin marketplace add ParthBiyani/ProjectMind
+/plugin install projectmind@projectmind
+```
+
+(or in one step: `/plugin install projectmind --marketplace ParthBiyani/ProjectMind`), then say
+**"install ProjectMind"**. The skill checks your machine, lists candidate folders and asks which
+to read (it never adds a home folder or anything holding identity or financial documents),
+installs the package, builds the index, wires the hook and MCP server with backups, and checks
+the result with `projectmind doctor`. It asks before every step that reads your files or changes
+your Claude Code configuration. It was developed and tested on Windows 11; the tests also run
+on Linux in CI, but starting at logon and reading browser history are Windows-only.
 
 ## Quickstart (Windows, Python 3.11+)
 
@@ -75,7 +101,7 @@ py -m venv .venv
 .venv\Scripts\Activate.ps1
 
 projectmind ui --demo                       # see it first: a fictional workspace in the browser
-projectmind init                            # create the store, load starter profile proposals
+projectmind init --no-seed                  # create the store (--seed loads the author's example profile)
 projectmind sources add "D:/Projects"       # choose what to read (look inside first)
 projectmind sources add "~/.claude/projects" --kind transcripts --depth 0
 projectmind sync                            # read it (minutes the first time)
@@ -144,7 +170,8 @@ call needs it; the page has a strict Content-Security-Policy.
 Captures the readable text of the pages you read, **except sites on a never-capture list**
 that starts with banking, brokers (Kite/Zerodha, Fyers and others), payments, mail, chat,
 social media, sign-in pages, password managers, government identity sites, health,
-personal documents, cloud consoles and AI chats.
+personal documents and cloud consoles. **AI chat sites** (ChatGPT, Claude, Gemini) are read
+only on conversation pages, never their sign-in, settings or billing pages.
 
 1. `projectmind browser enable` (the daemon must be running).
 2. Open `edge://extensions` (or `chrome://extensions`), turn on **Developer mode**, choose
@@ -164,7 +191,9 @@ daemon is down, captures wait in a queue of 200.
 
 Local only: no network call on the retrieval path, and the daemon listens on loopback with
 a bearer token and a Host check. Credentials and personal identifiers (Aadhaar, PAN, SSN,
-card numbers) are dropped, not redacted; identity documents are never opened; sources are
+card numbers, passwords next to a login, one-time codes) are replaced by `[REDACTED:kind]`
+before anything is stored, shown or handed to your agent, and text that still looks like a secret
+afterwards is dropped whole; identity documents are never opened; sources are
 only ever read; browser reading is opt-in and has a never-capture list;
 `projectmind sources audit --fix` re-applies the rules to what is already stored.
 
@@ -211,7 +240,7 @@ All settings with rationale: [`config.py`](src/projectmind/config.py).
 | `install claude-code`, `serve`, `daemon status / stop / token`, `schedule install / remove` | Integration and the always-on daemon |
 | `context`, `history list / show / replay / label / export` | What the agent would receive; everything asked |
 | `profile review / add / edit`, `semantic status / enable / index`, `browser enable / deny / allow / scan` | Profile, meaning search, browser |
-| `eval run / real`, `doctor` | Measure it; verify the install |
+| `eval run / real / sample`, `doctor` | Measure it; verify the install |
 
 ## Project layout
 
@@ -229,6 +258,7 @@ src/projectmind/
   hook_entry.py   standard-library hook client
   mcp/  cli/  evaluation/  profile/  reflection/
 extension/        Edge / Chrome extension
+plugins/          the Claude Code plugin: the `install` skill (marketplace: .claude-plugin/)
 eval/             synthetic evaluation set, baselines, real-data example
 ```
 
@@ -249,9 +279,9 @@ parity suite against a pgvector container. Release history: [CHANGELOG.md](CHANG
 
 - Automatic injection is precision-first: a question worded very differently from your notes
   may get nothing (semantic search narrows, not closes, this).
-- Synthetic false injection on the history-record path misses its target (0.174 vs 0.10).
-- The semantic threshold is calibrated on a small set.
-- While a sync runs, a prompt can take a few seconds: the sync shares the daemon's process.
+- The semantic bar (0.80) is calibrated on 40 absent-topic questions; one leaks at 0.77, so the
+  margin is about 0.03, and the questions come from one person's corpus.
+- Questions worded very differently from the notes still often get nothing, by design.
 - Single user, single machine. Model-written notes are not implemented.
 
 ## License
